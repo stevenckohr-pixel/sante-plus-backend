@@ -147,23 +147,28 @@ router.post("/validate", middleware(["COORDINATEUR"]), async (req, res) => {
  * 📂 4. LIRE LES VISITES (Filtrage de sécurité)
  */
 router.get("/", middleware(["COORDINATEUR", "AIDANT", "FAMILLE"]), async (req, res) => {
-    let query = supabase.from("visites").select(`
-        *,
-        patient:patients (nom_complet, adresse),
-        aidant:aidant_id (nom)
-    `);
+    try {
+        let query = supabase.from("visites").select(`
+            *,
+            patient:patients!visites_patient_id_fkey (nom_complet, adresse),
+            aidant:profiles!visites_aidant_id_fkey (nom)
+        `);
 
-    if (req.user.role === "AIDANT") {
-      query = query.eq("aidant_id", req.user.userId);
-    } else if (req.user.role === "FAMILLE") {
-      const { data: p } = await supabase.from("patients").select("id").eq("famille_user_id", req.user.userId).maybeSingle();
-      if (!p) return res.json([]);
-      query = query.eq("patient_id", p.id).eq("statut_validation", "Validé");
+        if (req.user.role === "AIDANT") {
+            query = query.eq("aidant_id", req.user.userId);
+        } else if (req.user.role === "FAMILLE") {
+            const { data: p } = await supabase.from("patients").select("id").eq("famille_user_id", req.user.userId).maybeSingle();
+            if (!p) return res.json([]);
+            query = query.eq("patient_id", p.id).eq("statut_validation", "Validé");
+        }
+
+        const { data, error } = await query.order("heure_debut", { ascending: false });
+        if (error) throw error;
+        res.json(data);
+    } catch (err) {
+        console.error("Erreur Visites:", err.message);
+        res.status(500).json({ error: err.message });
     }
-
-    const { data, error } = await query.order("heure_debut", { ascending: false });
-    if (error) return res.status(500).json({ error: error.message });
-    res.json(data);
 });
 
 
