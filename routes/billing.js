@@ -80,7 +80,7 @@ router.post("/generate-payment", middleware(["FAMILLE"]), async (req, res) => {
         description: `Santé Plus - Facture #${abonnement_id.substring(0, 8)}`,
         amount: montant,
         currency: { iso: "XOF" },
-        callback_url: "https://ton-site.com/#billing?status=success", // Ton URL frontend
+        callback_url: "https://stevenckohr-pixel.github.io/sante-plus-frontend/#billing?status=success",
         metadata: { abonnement_id: abonnement_id },
         customer: { email: email_client || "client@santeplus.bj" },
       },
