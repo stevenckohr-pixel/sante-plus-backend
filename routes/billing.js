@@ -25,11 +25,15 @@ router.get("/", middleware(["COORDINATEUR", "FAMILLE"]), async (req, res) => {
       query = query.eq("patient_id", patientData.id);
     }
 
-    const { data, error } = await query.order("created_at", {
-      ascending: false,
-    });
-    if (error) throw error;
-    res.json(data);
+    const { data, error } = await query.order("created_at", { ascending: false });
+    
+    // Si la table est vide, Supabase ne renvoie pas d'erreur, mais on vérifie quand même
+    if (error) {
+        console.error("Erreur Abonnements:", error);
+        return res.status(500).json({ error: error.message });
+    }
+    
+    res.json(data || []); // On renvoie un tableau vide au lieu de planter
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
