@@ -166,4 +166,82 @@ router.get("/", middleware(["COORDINATEUR", "AIDANT", "FAMILLE"]), async (req, r
     res.json(data);
 });
 
+
+
+/**
+ * 📏 Formule de Haversine : Calcule la distance entre deux points (en mètres)
+ */
+function getDistance(lat1, lon1, lat2, lon2) {
+    const R = 6371e3; // Rayon de la Terre en mètres
+    const p1 = lat1 * Math.PI/180;
+    const p2 = lat2 * Math.PI/180;
+    const dp = (lat2-lat1) * Math.PI/180;
+    const dl = (lon2-lon1) * Math.PI/180;
+
+    const a = Math.sin(dp/2) * Math.sin(dp/2) +
+              Math.cos(p1) * Math.cos(p2) *
+              Math.sin(dl/2) * Math.sin(dl/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+
+    return R * c; 
+}
+
+
+
+/**
+ * 🛰️ SURVEILLANCE LIVE & GEOFENCING
+ * Appelé en arrière-plan par le mobile de l'aidant
+ */
+router.post("/track", middleware(['AIDANT']), async (req, res) => {
+    const { visite_id, lat, lng } = req.body;
+
+    try {
+        // 1. Archiver la position pour l'historique (Preuve de trajet)
+        await supabase.from("positions_live").insert([{
+            visite_id,
+            aidant_id: req.user.userId,
+            lat, lng
+        }]);
+
+        // 2. Récupérer les coordonnées de la maison du patient
+        const { data: visite, error } = await supabase
+            .from("visites")
+            .select(`
+                id, 
+                patient_id, 
+                patient:patients(lat, lng, rayon_geofence)
+            `)
+            .eq("id", visite_id)
+            .single();
+
+        if (error || !visite || !visite.patient.lat) {
+            return res.sendStatus(200); // On ignore si le patient n'a pas de GPS configuré
+        }
+
+        // 3. CALCUL DU PÉRIMÈTRE
+        const distance = getDistance(lat, lng, visite.patient.lat, visite.patient.lng);
+        const rayonAutorise = visite.patient.rayon_geofence || 100;
+
+        // 4. ACTION SI SORTIE DE ZONE (Alerte Geofence)
+        if (distance > rayonAutorise) {
+            console.log(`⚠️ [GEOFENCE] Aidant ${req.user.userId} hors zone : ${Math.round(distance)}m`);
+            
+            // On marque la visite comme "Suspecte" en base de données
+            await supabase
+                .from("visites")
+                .update({ 
+                    alerte_geofence: true,
+                    distance_max_constatee: distance 
+                })
+                .eq("id", visite_id);
+            
+            // ICI : Tu pourrais envoyer un SMS au Coordinateur via une API comme Twilio
+        }
+
+        res.sendStatus(200);
+    } catch (err) {
+        console.error("Erreur Tracking:", err.message);
+        res.sendStatus(500);
+    }
+});
 module.exports = router;
