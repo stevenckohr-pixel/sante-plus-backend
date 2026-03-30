@@ -6,14 +6,26 @@ const multer = require("multer");
 const upload = multer({ storage: multer.memoryStorage() });
 
 // --- CONFIGURATION DE SÉCURITÉ (CORS) ---
+// Liste des origines autorisées (SANS slash à la fin)
+const allowedOrigins = [
+    'https://stevenckohr-pixel.github.io',
+    'http://localhost:5500',
+    'http://127.0.0.1:5500'
+];
+
 app.use(cors({
-    origin: [
-        'http://localhost:5500', 
-        'http://127.0.0.1:5500', 
-        'https://stevenckohr-pixel.github.io' // Ton frontend GitHub Pages
-    ],
-    methods: ['GET', 'POST', 'PUT', 'DELETE'],
-    allowedHeaders: ['Content-Type', 'Authorization']
+    origin: function (origin, callback) {
+        // Autorise les requêtes sans origine (comme Postman) ou les origines de la liste
+        if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+            callback(null, true);
+        } else {
+            console.log("CORS Bloqué pour l'origine :", origin);
+            callback(new Error('Non autorisé par CORS'));
+        }
+    },
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true
 }));
 
 app.use(express.json());
