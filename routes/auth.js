@@ -136,4 +136,49 @@ router.post("/create-member", middleware(["COORDINATEUR"]), async (req, res) => 
         res.status(500).json({ error: err.message });
     }
 });
+
+
+
+router.post("/register-family-patient", async (req, res) => {
+    const { email, password, nom_famille, tel_famille, nom_patient, adresse_patient, formule } = req.body;
+
+    try {
+        // 1. Création du compte Auth Supabase
+        const { data: auth, error: authErr } = await supabase.auth.signUp({ email, password });
+        if (authErr) throw authErr;
+
+        // 2. Création du profil Famille
+        await supabase.from("profiles").insert([{
+            id: auth.user.id,
+            nom: nom_famille,
+            telephone: tel_famille,
+            role: 'FAMILLE',
+            statut_validation: 'EN_ATTENTE'
+        }]);
+
+        // 3. Création du dossier Patient lié
+        await supabase.from("patients").insert([{
+            nom_complet: nom_patient,
+            adresse: adresse_patient,
+            formule: formule,
+            famille_user_id: auth.user.id,
+            statut_validation: 'EN_ATTENTE'
+        }]);
+
+        // 4. EMAIL AUTOMATIQUE : "Accusé de réception"
+        const { sendEmailAPI } = require("../utils");
+        const html = `
+            <div style="font-family: sans-serif; color: #1e293b;">
+                <h2 style="color: #16a34a;">Demande reçue !</h2>
+                <p>Bonjour ${nom_famille},</p>
+                <p>Nous avons bien reçu votre demande d'inscription pour le suivi de <b>${nom_patient}</b>.</p>
+                <p>Notre équipe de coordination va examiner votre dossier sous 24h. Vous recevrez un mail dès que l'accès sera activé.</p>
+            </div>`;
+        sendEmailAPI(email, "Inscription enregistrée - Santé Plus", html);
+
+        res.json({ status: "success" });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 module.exports = router;
