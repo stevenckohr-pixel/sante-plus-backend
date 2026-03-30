@@ -34,6 +34,9 @@ router.post("/validate-member", middleware(['COORDINATEUR']), async (req, res) =
                     <p style="margin: 0;">🔑 Mot de passe : <span style="background: #cbd5e1; padding: 2px 5px; border-radius: 4px; font-family: monospace;">${tempPassword}</span></p>
                 </div>
             `;
+       
+            console.log(`✅ Accès généré pour Aidant: ${email}`);
+
         }
 
         // 2. ACTIVATION DU PROFIL UTILISATEUR
