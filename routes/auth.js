@@ -192,27 +192,49 @@ router.all("/reset-password", async (req, res) => {
 // 5. INSCRIPTION DUO : FAMILLE + PATIENT (Public)
 // ============================================================
 router.post("/register-family-patient", async (req, res) => {
+    // 1. On récupère les données
     const { email, password, nom_famille, tel_famille, nom_patient, adresse_patient, formule } = req.body;
+    
+    // 2. Nettoyage strict de l'email
+    const cleanEmail = (email || "").toLowerCase().trim();
 
     try {
-        const { data: auth, error: authErr } = await supabase.auth.signUp({ email, password });
+        // 3. Appel unique à Supabase Auth
+        const { data: auth, error: authErr } = await supabase.auth.signUp({ 
+            email: cleanEmail, 
+            password: password 
+        });
+        
         if (authErr) throw authErr;
 
+        // 4. Insertion dans profiles
         await supabase.from("profiles").insert([{
-            id: auth.user.id, nom: nom_famille, telephone: tel_famille,
-            email: email, role: 'FAMILLE', statut_validation: 'EN_ATTENTE'
+            id: auth.user.id, 
+            nom: nom_famille, 
+            telephone: tel_famille,
+            email: cleanEmail, // On utilise l'email propre
+            role: 'FAMILLE', 
+            statut_validation: 'EN_ATTENTE'
         }]);
 
+        // 5. Insertion dans patients
         await supabase.from("patients").insert([{
-            nom_complet: nom_patient, adresse: adresse_patient, formule: formule,
-            famille_user_id: auth.user.id, statut_paiement: 'A jour', statut_validation: 'EN_ATTENTE'
+            nom_complet: nom_patient, 
+            adresse: adresse_patient, 
+            formule: formule,
+            famille_user_id: auth.user.id, 
+            statut_paiement: 'A jour', 
+            statut_validation: 'EN_ATTENTE'
         }]);
 
         const html = `<div style="padding: 20px;"><h2>Demande reçue !</h2><p>Un coordinateur validera votre accès sous 24h.</p></div>`;
-        await sendEmailAPI(email, "Votre demande d'inscription - Santé Plus", html);
+        await sendEmailAPI(cleanEmail, "Votre demande d'inscription - Santé Plus", html);
 
         res.json({ status: "success" });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { 
+        console.error("Erreur Inscription:", err);
+        res.status(500).json({ error: err.message }); 
+    }
 });
 
 // ============================================================
