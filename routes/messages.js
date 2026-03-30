@@ -20,15 +20,13 @@ router.get(
     try {
       // On récupère les messages avec les infos de l'expéditeur (Jointure SQL)
       const { data, error } = await supabase
-        .from("messages")
-        .select(
-          `
-                *,
-                sender:sender_id (nom, role, photo_url)
-            `,
-        )
-        .eq("patient_id", patient_id)
-        .order("created_at", { ascending: true });
+          .from("messages")
+          .select(`
+              *,
+              sender:profiles!messages_sender_id_fkey (nom, role, photo_url)
+          `)
+          .eq("patient_id", patient_id)
+          .order("created_at", { ascending: true });
 
       if (error) throw error;
 
