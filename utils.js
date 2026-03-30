@@ -4,7 +4,7 @@ const supabase = require("./supabaseClient");
 
 // Configuration du moteur Push avec les clés de sécurité VAPID
 webpush.setVapidDetails(
-  "mailto: rh@cataria-systems.com", // Email de contact pour les serveurs de push (Google/Apple)
+  "mailto: stevenckohr@gmail.com", // Email de contact pour les serveurs de push (Google/Apple)
   process.env.VAPID_PUBLIC_KEY,
   process.env.VAPID_PRIVATE_KEY,
 );
@@ -71,7 +71,7 @@ async function sendEmailAPI(toEmail, subject, htmlContent) {
         {
         sender: {
           name: "Santé Plus Services",
-          email: "stevenckohr@gmail.com", // 👈 Mets TON adresse email Brevo ici
+          email: "rh@cataria-systems.com", // 
         },
         to: [{ email: toEmail }],
         subject: subject,
