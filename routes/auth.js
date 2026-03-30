@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const supabase = require("../supabaseClient");
 const jwt = require("jsonwebtoken");
+const middleware = require("../middleware"); 
 
 // Route Inscription avec rôle
 router.post("/register", async (req, res) => {
