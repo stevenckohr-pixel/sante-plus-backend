@@ -71,7 +71,7 @@ async function sendEmailAPI(toEmail, subject, htmlContent) {
         {
         sender: {
           name: "Santé Plus Services",
-          email: "rh@cataria-systems.com", // 
+          email: "nevillebouchard98@gmail.com", // 
         },
         to: [{ email: toEmail }],
         subject: subject,
