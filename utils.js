@@ -4,7 +4,7 @@ const supabase = require("./supabaseClient");
 
 // Configuration du moteur Push avec les clés de sécurité VAPID
 webpush.setVapidDetails(
-  "mailto: stevenckohr@gmail.com", // Email de contact pour les serveurs de push (Google/Apple)
+  "mailto: rh@cataria-systems.com", // Email de contact pour les serveurs de push (Google/Apple)
   process.env.VAPID_PUBLIC_KEY,
   process.env.VAPID_PRIVATE_KEY,
 );
