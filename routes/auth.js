@@ -34,6 +34,7 @@ router.post("/login", async (req, res) => {
       .single();
 
     if (profErr || !profile) {
+      console.error("ERREUR LECTURE PROFIL SUPABASE :", profErr);
       return res.status(404).json({ error: "Détails du profil introuvables. Contactez l'admin." });
     }
 
