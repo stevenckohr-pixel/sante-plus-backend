@@ -9,7 +9,7 @@ const upload = multer({ storage: multer.memoryStorage() });
 // Liste des origines autorisées (SANS slash à la fin)
 app.use(cors({
     origin: [
-        'https://stevenckohr-pixel.github.io',
+        'https://stevenckohr-pixel.github.io/sante-plus-frontend/',
         'http://localhost:5500',
         'http://127.0.0.1:5500'
     ],
