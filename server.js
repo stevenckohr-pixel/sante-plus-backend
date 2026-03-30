@@ -7,13 +7,14 @@ const upload = multer({ storage: multer.memoryStorage() });
 
 // --- CONFIGURATION DE SÉCURITÉ (CORS) ---
 // Liste des origines autorisées (SANS slash à la fin)
+// Remplace le bloc CORS par celui-ci :
 app.use(cors({
-    origin: [
-        'https://stevenckohr-pixel.github.io/sante-plus-frontend/',
+    origin:[
+        'https://stevenckohr-pixel.github.io', // ⚠️ Sans slash à la fin !
         'http://localhost:5500',
         'http://127.0.0.1:5500'
     ],
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    methods:['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true
 }));
