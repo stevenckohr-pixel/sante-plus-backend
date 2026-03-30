@@ -97,4 +97,43 @@ router.post("/subscribe-push", middleware(), async (req, res) => {
   }
 });
 
+
+/**
+ * 👤 CRÉATION D'UTILISATEUR PAR UN ADMIN (Aidant ou Coordinateur)
+ * Cette route crée le compte Auth + le profil d'un seul coup
+ */
+router.post("/create-member", middleware(["COORDINATEUR"]), async (req, res) => {
+    const { email, password, nom, telephone, role } = req.body;
+
+    try {
+        // 1. Création du compte dans l'Authentification Supabase 
+        // On utilise l'admin API (nécessite la clé SERVICE_ROLE dans supabaseClient)
+        const { data: userData, error: authErr } = await supabase.auth.admin.createUser({
+            email,
+            password,
+            email_confirm: true // On valide l'email d'office
+        });
+
+        if (authErr) throw authErr;
+
+        // 2. Création du profil dans ta table "profiles"
+        const { error: profileErr } = await supabase
+            .from("profiles")
+            .insert([{
+                id: userData.user.id,
+                nom,
+                telephone,
+                email,
+                role // 'AIDANT' ou 'COORDINATEUR'
+            }]);
+
+        if (profileErr) throw profileErr;
+
+        // 3. Optionnel : Envoyer un mail automatique à l'employé avec ses accès via Brevo
+        
+        res.json({ status: "success", message: `Compte ${role} créé pour ${nom}` });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 module.exports = router;
