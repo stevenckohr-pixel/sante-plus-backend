@@ -68,10 +68,10 @@ async function sendEmailAPI(toEmail, subject, htmlContent) {
   try {
     await axios.post(
       "https://api.brevo.com/v3/smtp/email",
-      {
+        {
         sender: {
           name: "Santé Plus Services",
-          email: "no-reply@santeplus.bj", // Email officiel d'envoi
+          email: "stevenckohr@gmail.com", // 👈 Mets TON adresse email Brevo ici
         },
         to: [{ email: toEmail }],
         subject: subject,
