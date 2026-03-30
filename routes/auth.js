@@ -10,12 +10,15 @@ const JWT_SECRET = process.env.JWT_SECRET;
 // ============================================================
 // 1. CONNEXION SÉCURISÉE (Avec 2FA optionnel pour Coordinateur)
 // ============================================================
+// 1. CONNEXION SÉCURISÉE (Version Unique)
 router.post("/login", async (req, res) => {
   try {
     const email = (req.body.email || req.body.u || "").toLowerCase().trim();
     const password = req.body.password || req.body.p;
 
-    // A. Authentification Supabase Auth
+    if (!email || !password) return res.status(400).json({ error: "Email et mot de passe requis" });
+
+    // A. Authentification Supabase
     const { data: authData, error: authErr } = await supabase.auth.signInWithPassword({
       email: email,
       password: password,
@@ -31,16 +34,17 @@ router.post("/login", async (req, res) => {
       .single();
 
     if (profErr || !profile) {
-      return res.status(404).json({ error: "Compte non configuré. Contactez l'admin." });
+      return res.status(404).json({ error: "Détails du profil introuvables. Contactez l'admin." });
     }
 
+    // C. Vérification du statut
     if (profile.statut_validation === 'EN_ATTENTE') {
-      return res.status(403).json({ error: "Votre compte est en attente de validation par le coordinateur." });
+      return res.status(403).json({ error: "Votre compte est en attente de validation." });
     }
 
     const userRole = (profile.role || "AIDANT").toUpperCase();
 
-    // C. Logique 2FA pour les Coordinateurs
+    // D. Logique 2FA pour les Coordinateurs uniquement
     if (userRole === "COORDINATEUR") {
       const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
       const expires = new Date(Date.now() + 10 * 60000).toISOString();
@@ -59,21 +63,23 @@ router.post("/login", async (req, res) => {
                   ${otpCode}
               </div>
           </div>
-      </div>`;
-
+      </div>`;      
       await sendEmailAPI(email, "Code de sécurité Santé Plus", emailHtml);
+      
       return res.json({ status: "require_2fa", email: email });
     }
 
-    // D. Connexion directe pour Aidants et Familles
+    // E. Connexion directe pour les autres rôles
     const token = jwt.sign({ userId: authData.user.id, role: userRole }, JWT_SECRET, { expiresIn: "24h" });
-
     return res.json({ status: "success", token, role: userRole, nom: profile.nom });
 
   } catch (err) {
+    console.error("Login Crash:", err.message);
     res.status(500).json({ error: "Erreur technique serveur" });
   }
 });
+
+
 
 // ============================================================
 // 2. VÉRIFICATION DU CODE 2FA
