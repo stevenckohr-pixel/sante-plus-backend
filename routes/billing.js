@@ -9,33 +9,45 @@ const middleware = require("../middleware");
  */
 router.get("/", middleware(["COORDINATEUR", "FAMILLE"]), async (req, res) => {
   try {
-    let query = supabase.from("abonnements").select(`
-            *,
-            patient:patients (id, nom_complet, formule, famille_user_id)
-        `);
+    console.log(`📊 [BILLING] Requête pour le rôle : ${req.user.role}`);
 
+    // 1. On simplifie la requête pour éviter les erreurs de nom de contrainte (!fkey)
+    // Supabase trouve généralement le lien tout seul s'il n'y en a qu'un
+    let query = supabase.from("abonnements").select(`
+        *,
+        patient:patients (id, nom_complet, formule, famille_user_id)
+    `);
+
+    // 2. Filtrage pour les familles
     if (req.user.role === "FAMILLE") {
-      const { data: patientData } = await supabase
+      const { data: patientData, error: pError } = await supabase
         .from("patients")
         .select("id")
         .eq("famille_user_id", req.user.userId)
         .maybeSingle();
 
-      if (!patientData) return res.json([]);
+      if (pError || !patientData) {
+          console.warn("⚠️ [BILLING] Aucun patient lié à cette famille.");
+          return res.json([]); 
+      }
       query = query.eq("patient_id", patientData.id);
     }
 
+    // 3. Exécution avec tri
     const { data, error } = await query.order("created_at", { ascending: false });
     
-    // Si la table est vide, Supabase ne renvoie pas d'erreur, mais on vérifie quand même
     if (error) {
-        console.error("Erreur Abonnements:", error);
-        return res.status(500).json({ error: error.message });
+        // 👇 C'EST ICI QUE TU VERRAS L'ERREUR DANS RENDER 👇
+        console.error("❌ [SUPABASE ERROR]:", error.message);
+        return res.status(400).json({ error: error.message });
     }
     
-    res.json(data || []); // On renvoie un tableau vide au lieu de planter
+    console.log(`✅ [BILLING] ${data ? data.length : 0} facture(s) trouvée(s).`);
+    res.json(data || []); 
+
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("💥 [SERVER CRASH]:", err.message);
+    res.status(500).json({ error: "Erreur interne du serveur de facturation." });
   }
 });
 
