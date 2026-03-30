@@ -181,4 +181,89 @@ router.post("/register-family-patient", async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+
+
+
+/**
+ * 👨‍👩‍👧‍👦 INSCRIPTION DUO : FAMILLE + PATIENT
+ * Crée le compte Auth, le profil Famille et le dossier Patient en un clic.
+ */
+router.post("/register-family-patient", async (req, res) => {
+    const { 
+        email, password, nom_famille, tel_famille, 
+        nom_patient, adresse_patient, formule 
+    } = req.body;
+
+    try {
+        // 1. Création du compte dans Supabase Auth
+        const { data: auth, error: authErr } = await supabase.auth.signUp({
+            email,
+            password
+        });
+
+        if (authErr) throw authErr;
+        const userId = auth.user.id;
+
+        // 2. Création du profil 'FAMILLE' dans la table profiles
+        const { error: profileErr } = await supabase
+            .from("profiles")
+            .insert([{
+                id: userId,
+                nom: nom_famille,
+                telephone: tel_famille,
+                email: email,
+                role: 'FAMILLE',
+                statut_validation: 'EN_ATTENTE' // Reste à valider par l'admin
+            }]);
+
+        if (profileErr) throw profileErr;
+
+        // 3. Création du dossier 'PATIENT' lié à cette famille
+        const { error: patientErr } = await supabase
+            .from("patients")
+            .insert([{
+                nom_complet: nom_patient,
+                adresse: adresse_patient,
+                formule: formule,
+                famille_user_id: userId,
+                statut_paiement: 'A jour', // On considère à jour pour le test initial
+                statut_validation: 'EN_ATTENTE'
+            }]);
+
+        if (patientErr) throw patientErr;
+
+        // 4. ENVOI DE L'EMAIL D'ACCUSÉ DE RÉCEPTION (SaaS Premium)
+        const { sendEmailAPI } = require("../utils");
+        const emailHtml = `
+        <div style="font-family: sans-serif; color: #1e293b; max-width: 600px; margin: auto; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden;">
+            <div style="background-color: #0f172a; padding: 30px; text-align: center;">
+                <img src="https://cdn-icons-png.flaticon.com/512/9752/9752284.png" style="width: 60px;">
+                <h1 style="color: #ffffff; margin: 10px 0 0 0; font-size: 18px; letter-spacing: 2px; text-transform: uppercase;">Santé Plus Services</h1>
+            </div>
+            <div style="padding: 40px;">
+                <h2 style="color: #16a34a; margin-top: 0;">Demande d'inscription reçue !</h2>
+                <p>Bonjour <b>${nom_famille}</b>,</p>
+                <p>Nous avons bien reçu votre demande d'accompagnement pour votre proche <b>${nom_patient}</b>.</p>
+                <p>Un coordinateur va examiner votre dossier et activer votre accès sous 24h. Vous recevrez un email de confirmation dès que le "Live Care Feed" sera prêt.</p>
+                
+                <div style="background-color: #f8fafc; padding: 20px; border-radius: 12px; margin: 25px 0;">
+                    <p style="margin: 0; color: #64748b; font-size: 11px; text-transform: uppercase;">Résumé de votre demande</p>
+                    <p style="margin: 10px 0 5px 0;">👤 Patient : <b>${nom_patient}</b></p>
+                    <p style="margin: 0;">📋 Formule choisie : <b>${formule}</b></p>
+                </div>
+            </div>
+            <div style="background-color: #f1f5f9; padding: 20px; text-align: center; font-size: 11px; color: #94a3b8;">
+                &copy; 2026 Santé Plus Services - Cotonou, Bénin.
+            </div>
+        </div>`;
+
+        await sendEmailAPI(email, "Votre demande d'inscription - Santé Plus Services", emailHtml);
+
+        res.json({ status: "success", message: "Demande enregistrée avec succès." });
+
+    } catch (err) {
+        console.error("❌ Erreur Inscription Duo:", err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
 module.exports = router;
