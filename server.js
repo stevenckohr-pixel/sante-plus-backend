@@ -5,7 +5,16 @@ const app = express();
 const multer = require("multer");
 const upload = multer({ storage: multer.memoryStorage() });
 
-app.use(cors());
+// Autorise ton PC ET ton lien GitHub à parler au serveur
+app.use(cors({
+    origin: [
+        'http://localhost:5500', 
+        'http://127.0.0.1:5500', 
+        'https://stevenckohr-pixel.github.io'
+    ],
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use(express.json());
 
 // --- ROUTES PUBLIQUES (SANS TOKEN) ---
