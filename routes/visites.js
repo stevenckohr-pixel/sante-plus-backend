@@ -244,4 +244,52 @@ router.post("/track", middleware(['AIDANT']), async (req, res) => {
         res.sendStatus(500);
     }
 });
+
+
+
+/**
+ * 📡 RÉCUPÉRER LES POSITIONS LIVE POUR LA CARTE
+ * Uniquement pour le Coordinateur
+ */
+router.get("/live-tracking", middleware(['COORDINATEUR']), async (req, res) => {
+    try {
+        // 1. Chercher les visites dont le statut est "En cours"
+        const { data: activeVisits } = await supabase
+            .from("visites")
+            .select(`
+                id, 
+                aidant_id,
+                alerte_geofence,
+                patient:patients(nom_complet, lat, lng, rayon_geofence),
+                aidant:profiles!aidant_id(nom)
+            `)
+            .eq("statut_validation", "En cours");
+
+        if (!activeVisits) return res.json([]);
+
+        // 2. Pour chaque visite, prendre la DERNIERE position connue
+        const liveData = await Promise.all(activeVisits.map(async (v) => {
+            const { data: lastPos } = await supabase
+                .from("positions_live")
+                .select("lat, lng")
+                .eq("visite_id", v.id)
+                .order("created_at", { ascending: false })
+                .limit(1)
+                .maybeSingle();
+
+            if (!lastPos) return null;
+
+            return {
+                visite_id: v.id,
+                lat: lastPos.lat,
+                lng: lastPos.lng,
+                aidant_nom: v.aidant.nom,
+                patient_nom: v.patient.nom_complet,
+                is_inside: !v.alerte_geofence
+            };
+        }));
+
+        res.json(liveData.filter(d => d !== null));
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
 module.exports = router;
