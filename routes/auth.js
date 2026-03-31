@@ -244,17 +244,27 @@ router.post("/create-member", middleware(["COORDINATEUR"]), async (req, res) => 
     const { email, password, nom, telephone, role } = req.body;
 
     try {
+        // On utilise SERVICE_ROLE pour créer l'utilisateur sans aucune limite
         const { data: userData, error: authErr } = await supabase.auth.admin.createUser({
-            email, password, email_confirm: true
+            email: email,
+            password: password,
+            email_confirm: true, // 👈 FORCE LA VALIDATION DU MAIL DIRECTEMENT
+            user_metadata: { nom: nom, role: role }
         });
+
         if (authErr) throw authErr;
 
+        // On insère ensuite dans ton profil habituel
         await supabase.from("profiles").insert([{
-            id: userData.user.id, nom, telephone, email, role, statut_validation: 'ACTIF'
+            id: userData.user.id,
+            nom, telephone, email, role,
+            statut_validation: 'ACTIF' 
         }]);
 
         res.json({ status: "success" });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { 
+        res.status(500).json({ error: err.message }); 
+    }
 });
 
 // ============================================================
