@@ -297,4 +297,25 @@ router.get("/live-tracking", middleware(['COORDINATEUR']), async (req, res) => {
         res.json(liveData.filter(d => d !== null));
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
+
+
+
+/**
+ * 📈 RÉCUPÉRER LE TRACÉ COMPLET D'UNE VISITE
+ */
+router.get("/trajectory/:visite_id", middleware(['COORDINATEUR']), async (req, res) => {
+    try {
+        const { data, error } = await supabase
+            .from("positions_live")
+            .select("lat, lng, created_at")
+            .eq("visite_id", req.params.id)
+            .order("created_at", { ascending: true });
+
+        if (error) throw error;
+        res.json(data);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 module.exports = router;
