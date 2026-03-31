@@ -4,7 +4,7 @@ const supabase = require("../supabaseClient");
 const middleware = require("../middleware"); // On utilise le middleware complet
 
 // LISTER LES PATIENTS (Corrigé pour joindre les infos de la famille)
-router.get("/", middleware(["COORDINATEUR", "FAMILLE"]), async (req, res) => {
+router.get("/", middleware(["COORDINATEUR", "FAMILLE", "AIDANT"]), async (req, res) => {
   // On joint le nom de la famille et du coordinateur pour un affichage complet
   let query = supabase.from("patients").select(`
         *,
