@@ -75,7 +75,7 @@ router.post("/validate-member", middleware(['COORDINATEUR']), async (req, res) =
                     
                     <!-- Header -->
                     <div style="background: #0F172A; padding: 40px; text-align: center;">
-                        <img src="https://cdn-icons-png.flaticon.com/512/9752/9752284.png" style="width: 50px; margin-bottom: 15px;">
+                        <img src="https://res.cloudinary.com/dglwrrvh3/image/upload/v1774974945/heart-beat_tjb16u.png" style="width: 50px; margin-bottom: 15px;">
                         <h1 style="color: white; margin: 0; font-size: 16px; letter-spacing: 4px; text-transform: uppercase; font-weight: 900;">Santé Plus Services</h1>
                     </div>
 
