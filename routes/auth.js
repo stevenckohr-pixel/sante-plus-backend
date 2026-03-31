@@ -46,13 +46,16 @@ router.post("/login", async (req, res) => {
     const userRole = (profile.role || "AIDANT").toUpperCase();
 
     // D. Logique 2FA pour les Coordinateurs uniquement
-    if (userRole === "COORDINATEUR") {
+// C. Logique 2FA (Temporairement désactivée pour le développement)
+    const isDevMode = true; // 👈 Change en 'false' pour réactiver le 2FA plus tard
+
+    if (userRole === "COORDINATEUR" && !isDevMode) {
       const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
       const expires = new Date(Date.now() + 10 * 60000).toISOString();
 
       await supabase.from("profiles").update({ reset_code: otpCode, reset_expires: expires }).eq("id", authData.user.id);
 
-      const emailHtml = `
+           const emailHtml = `
       <div style="font-family: sans-serif; color: #1e293b; max-width: 500px; margin: auto; border: 1px solid #e2e8f0; border-radius: 16px;">
           <div style="background-color: #0f172a; padding: 20px; text-align: center;">
               <h2 style="color: #ffffff; margin: 0;">SÉCURITÉ SANTÉ PLUS</h2>
@@ -64,7 +67,9 @@ router.post("/login", async (req, res) => {
                   ${otpCode}
               </div>
           </div>
-      </div>`;      
+      </div>`;     
+
+
       await sendEmailAPI(email, "Code de sécurité Santé Plus", emailHtml);
       
       return res.json({ status: "require_2fa", email: email });
