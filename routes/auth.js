@@ -45,8 +45,7 @@ router.post("/login", async (req, res) => {
 
     const userRole = (profile.role || "AIDANT").toUpperCase();
 
-    // D. Logique 2FA pour les Coordinateurs uniquement
-// C. Logique 2FA (Temporairement désactivée pour le développement)
+    // C. Logique 2FA (Temporairement désactivée pour le développement)
     const isDevMode = true; // 👈 Change en 'false' pour réactiver le 2FA plus tard
 
     if (userRole === "COORDINATEUR" && !isDevMode) {
