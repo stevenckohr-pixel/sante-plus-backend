@@ -25,14 +25,14 @@ router.post("/start", middleware(["AIDANT"]), async (req, res) => {
 
     if (error) throw error;
 
-    if (visite.patient && visite.patient.famille_user_id) {
-      sendPushNotification(
+if (visite.patient && visite.patient.famille_user_id) {
+    sendPushNotification(
         visite.patient.famille_user_id,
-        "🔔 Arrivée de l'aidant",
-        `L'intervenant est arrivé chez ${visite.patient.nom_complet}.`,
-        "/#visits"
-      );
-    }
+        "🔔 SPS : Début d'intervention",
+        `L'intervenant vient d'arriver au domicile de ${visite.patient.nom_complet}.`,
+        "/#feed"
+    );
+}
 
     res.json({ status: "success", visite_id: visite.id });
   } catch (err) {
@@ -95,15 +95,15 @@ router.post("/end", middleware(["AIDANT"]), async (req, res) => {
         is_photo: false
     }]);
 
-    // 3. Notification Push à la famille
-    if (v.patient && v.patient.famille_user_id) {
-      sendPushNotification(
+// 2. DANS router.post("/end") - Juste avant le res.json
+if (v.patient && v.patient.famille_user_id) {
+    sendPushNotification(
         v.patient.famille_user_id,
-        "📸 Nouveau rapport de soins",
-        `L'intervention pour ${v.patient.nom_complet} est terminée. État : ${humeur}.`,
+        "📸 SPS : Rapport de visite disponible",
+        `L'intervention pour ${v.patient.nom_complet} est terminée. Consultez le journal pour voir les photos et l'humeur.`,
         "/#feed"
-      );
-    }
+    );
+}
 
     res.json({ status: "success" });
   } catch (err) {
