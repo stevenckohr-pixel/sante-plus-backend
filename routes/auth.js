@@ -241,32 +241,70 @@ router.post("/register-family-patient", async (req, res) => {
     }
 });
 
+
 // ============================================================
-// 6. CRÉATION D'EMPLOYÉ PAR LE COORDINATEUR
+// 6. CRÉATION D'EMPLOYÉ PAR LE COORDINATEUR (Avec envoi d'email)
 // ============================================================
 router.post("/create-member", middleware(["COORDINATEUR"]), async (req, res) => {
+    // Le serveur récupère exactement le mot de passe généré sur l'écran (ex: SPS-5936!)
     const { email, password, nom, telephone, role } = req.body;
 
     try {
-        // On utilise SERVICE_ROLE pour créer l'utilisateur sans aucune limite
+        console.log(`[RH] Création du collaborateur : ${email}`);
+
+        // 1. Création dans Supabase Auth
         const { data: userData, error: authErr } = await supabase.auth.admin.createUser({
             email: email,
             password: password,
-            email_confirm: true, // 👈 FORCE LA VALIDATION DU MAIL DIRECTEMENT
-            user_metadata: { nom: nom, role: role }
+            email_confirm: true
         });
-
         if (authErr) throw authErr;
 
-        // On insère ensuite dans ton profil habituel
-        await supabase.from("profiles").insert([{
-            id: userData.user.id,
-            nom, telephone, email, role,
-            statut_validation: 'ACTIF' 
+        // 2. Ajout dans la table Profiles
+        const { error: profErr } = await supabase.from("profiles").insert([{
+            id: userData.user.id, 
+            nom, 
+            telephone, 
+            email, 
+            role, 
+            statut_validation: 'ACTIF'
         }]);
+        if (profErr) throw profErr;
+
+        // 3. ENVOI DE L'EMAIL À L'AIDANT AVEC SES ACCÈS
+        const emailHtml = `
+            <div style="background-color: #F8FAFC; padding: 40px; font-family: sans-serif;">
+                <div style="max-width: 600px; margin: auto; background: white; border-radius: 24px; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.05);">
+                    <div style="background: #0F172A; padding: 30px; text-align: center;">
+                        <h1 style="color: white; margin: 0; font-size: 18px; letter-spacing: 2px;">SANTÉ PLUS SERVICES</h1>
+                    </div>
+                    <div style="padding: 40px;">
+                        <h2 style="color: #0F172A; font-size: 22px;">Bienvenue dans l'équipe !</h2>
+                        <p style="color: #64748B;">Bonjour <b>${nom}</b>, votre compte ${role} a été créé avec succès.</p>
+                        
+                        <div style="background: #F1F5F9; border-left: 4px solid #10B981; padding: 20px; border-radius: 12px; margin: 25px 0;">
+                            <p style="margin: 0; color: #64748B; font-size: 11px; text-transform: uppercase; font-weight: bold;">Vos identifiants de connexion</p>
+                            <p style="margin: 10px 0 5px 0; font-size: 15px;">Email : <b>${email}</b></p>
+                            <p style="margin: 0; font-size: 15px;">Mot de passe : <b style="color: #10B981;">${password}</b></p>
+                        </div>
+                        
+                        <a href="https://stevenckohr-pixel.github.io/sante-plus-frontend/" style="display: block; background: #0F172A; color: white; padding: 15px; text-align: center; text-decoration: none; border-radius: 12px; font-weight: bold;">Accéder à mon espace</a>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Envoi via Brevo (Géré de manière sécurisée pour ne pas faire crasher le serveur)
+        try {
+            await sendEmailAPI(email, "Vos accès collaborateurs - Santé Plus", emailHtml);
+            console.log("✅ Mail RH envoyé avec succès !");
+        } catch (mailError) {
+            console.warn("⚠️ Le compte est créé mais l'email n'a pas pu être envoyé.");
+        }
 
         res.json({ status: "success" });
     } catch (err) { 
+        console.error("❌ Erreur Create Member:", err.message);
         res.status(500).json({ error: err.message }); 
     }
 });
