@@ -71,7 +71,7 @@ async function sendEmailAPI(toEmail, subject, htmlContent) {
         {
         sender: {
           name: "Santé Plus Services",
-          email: "contact@terre-des-enfants-epanouis.org", // 
+          email: "nevillebouchard98@gmail.com", 
         },
         to: [{ email: toEmail }],
         subject: subject,
