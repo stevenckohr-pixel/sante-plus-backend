@@ -52,4 +52,37 @@ router.post("/link-family", middleware(["COORDINATEUR"]), async (req, res) => {
   res.json({ status: "success" });
 });
 
+
+
+
+
+
+/**
+ * 📍 FIXER LES COORDONNÉES GPS DU DOMICILE
+ * Autorisé pour le Coordinateur et l'Aidant (lorsqu'il est sur place)
+ */
+router.post("/update-gps", middleware(['COORDINATEUR', 'AIDANT']), async (req, res) => {
+    const { patient_id, lat, lng } = req.body;
+
+    try {
+        console.log(`🏠 [GPS] Fixation du domicile pour le patient ${patient_id} : ${lat}, ${lng}`);
+
+        const { error } = await supabase
+            .from("patients")
+            .update({ 
+                lat: lat, 
+                lng: lng,
+                rayon_geofence: 100 // On définit un rayon de 100m par défaut
+            })
+            .eq("id", patient_id);
+
+        if (error) throw error;
+
+        res.json({ status: "success", message: "Coordonnées du domicile enregistrées." });
+    } catch (err) {
+        console.error("❌ Erreur Update GPS Patient:", err.message);
+        res.status(500).json({ error: "Impossible d'enregistrer la position." });
+    }
+});
+
 module.exports = router;
