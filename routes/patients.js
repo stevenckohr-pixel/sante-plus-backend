@@ -54,7 +54,26 @@ router.post("/link-family", middleware(["COORDINATEUR"]), async (req, res) => {
 
 
 
+/**
+ * 🔍 RÉCUPÉRER UN SEUL PATIENT (Détails complets)
+ */
+router.get("/:id", middleware(["COORDINATEUR", "AIDANT", "FAMILLE"]), async (req, res) => {
+    try {
+        const { data, error } = await supabase
+            .from("patients")
+            .select(`
+                *,
+                famille:famille_user_id (nom, email, telephone)
+            `)
+            .eq("id", req.params.id)
+            .single();
 
+        if (error) throw error;
+        res.json(data);
+    } catch (err) {
+        res.status(404).json({ error: "Dossier introuvable" });
+    }
+});
 
 
 /**
