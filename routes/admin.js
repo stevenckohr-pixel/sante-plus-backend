@@ -11,7 +11,7 @@ const { sendEmailAPI } = require("../utils");
  * Gère l'activation, l'activation Duo Pack (Familles) et l'envoi d'email Premium.
  */
 router.post("/validate-member", middleware(['COORDINATEUR']), async (req, res) => {
-    const { user_id, role, email, nom } = req.body;
+    const { user_id, role, email, nom, notes } = req.body; 
 
     try {
         console.log(`🚀 [ADMIN] Lancement de la séquence d'activation pour : ${email} (${role})`);
