@@ -151,8 +151,11 @@ router.get("/", middleware(["COORDINATEUR", "AIDANT", "FAMILLE"]), async (req, r
         console.log(`🔍 [VISITES] Requête pour user: ${req.user.userId}, Rôle: ${req.user.role}`);
         
         // Requête simplifiée : Supabase résout le lien automatiquement par le nom de la colonne
-      let query = supabase.from("visites").select("*");
-
+        let query = supabase.from("visites").select(`
+            *,
+            patient:patient_id (nom_complet, adresse),
+            aidant:aidant_id (nom)
+        `);
 
         // Filtre selon le rôle
         if (req.user.role === "AIDANT") {
