@@ -10,29 +10,40 @@ const { sendPushNotification } = require("../utils"); // 👈 Indispensable pour
  */
 router.get("/", middleware(["COORDINATEUR", "FAMILLE"]), async (req, res) => {
   try {
-    // Jointure simple : Supabase résout le lien automatiquement
+    console.log(`📊 [BILLING] Requête pour user: ${req.user.userId}`);
+
     let query = supabase.from("abonnements").select(`
         *,
         patient:patients (id, nom_complet, formule, famille_user_id)
     `);
 
-    // Filtrage pour les familles (ne voient que leur proche)
     if (req.user.role === "FAMILLE") {
-      const { data: patientData } = await supabase
+      const { data: patientData, error: pError } = await supabase
         .from("patients")
         .select("id")
         .eq("famille_user_id", req.user.userId)
         .maybeSingle();
 
-      if (!patientData) return res.json([]);
+      if (pError) throw pError;
+      if (!patientData) {
+          console.warn("⚠️ [BILLING] Famille sans patient lié.");
+          return res.json([]);
+      }
       query = query.eq("patient_id", patientData.id);
     }
 
     const { data, error } = await query.order("created_at", { ascending: false });
-    if (error) throw error;
+    
+    if (error) {
+        console.error("❌ SQL ERROR [Billing]:", error);
+        return res.status(500).json({ error: error.message });
+    }
+
+    console.log(`✅ [BILLING] Succès, ${data ? data.length : 0} factures retournées.`);
     res.json(data || []); 
 
   } catch (err) {
+    console.error("💥 SYSTEM CRASH [Billing]:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
