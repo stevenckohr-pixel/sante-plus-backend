@@ -53,7 +53,10 @@ router.post("/end", middleware(["AIDANT"]), async (req, res) => {
   try {
     // 1. Upload de la photo de preuve
     const fileName = `visites/${visite_id}_${Date.now()}.jpg`;
-    await supabase.storage.from("preuves").upload(fileName, photoFile.buffer, { contentType: photoFile.mimetype });
+    await supabase.storage.from("preuves").upload(fileName, photoFile.buffer, { 
+        contentType: 'image/jpeg', 
+        upsert: true 
+    });
     const { data: publicUrlData } = supabase.storage.from("preuves").getPublicUrl(fileName);
     const photoUrl = publicUrlData.publicUrl;
 
