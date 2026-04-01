@@ -10,13 +10,13 @@ router.get("/stats", middleware(["COORDINATEUR"]), async (req, res) => {
     // On lance toutes les requêtes en parallèle
     const [patients, visitesToday, visitesPending, billingStats] = await Promise.all([
       // 1. Nombre de dossiers actifs
-      supabase.from("patients").select("*", { count: "exact", head: true }).eq("statut_validation", "ACTIF"),
+      supabase.from("patients").select("*", { count: "exact", head: true }).eq("statut", "ACTIF"),
 
       // 2. Visites du jour
       supabase.from("visites").select("*", { count: "exact", head: true }).gte("heure_debut", `${today}T00:00:00`),
 
       // 3. Alertes (Visites hors zone ou en attente)
-      supabase.from("visites").select("*", { count: "exact", head: true }).eq("statut_validation", "En attente"),
+      supabase.from("visites").select("*", { count: "exact", head: true }).eq("statut", "En attente"),
 
       // 4. CALCUL DU CA (Chiffre d'Affaires)
       supabase.from("abonnements").select("montant_paye, statut")
