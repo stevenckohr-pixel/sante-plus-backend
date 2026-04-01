@@ -18,7 +18,7 @@ router.post("/start", middleware(["AIDANT"]), async (req, res) => {
         aidant_id: req.user.userId,
         heure_debut: new Date(),
         gps_start: gps_start,
-        statut_validation: "En cours",
+        statut: "En cours",
       }])
       .select(`*, patient:patients(nom_complet, famille_user_id, famille:famille_user_id(email, nom))`)
       .single();
@@ -67,7 +67,7 @@ router.post("/end", middleware(["AIDANT"]), async (req, res) => {
         humeur,
         photo_url: photoUrl,
         gps_end: gps_end,
-        statut_validation: "En attente",
+        statut: "En attente",
       })
       .eq("id", visite_id)
       .select(`*, patient:patients(nom_complet, famille_user_id)`)
@@ -121,7 +121,7 @@ router.post("/validate", middleware(["COORDINATEUR"]), async (req, res) => {
   try {
     const { data: visite, error } = await supabase
         .from("visites")
-        .update({ statut_validation: statut })
+        .update({ statut: statut })
         .eq("id", visite_id)
         .select(`*, patient:patients(nom_complet, famille_user_id)`)
         .single();
@@ -274,7 +274,7 @@ router.get("/live-tracking", middleware(['COORDINATEUR']), async (req, res) => {
                 patient:patients(nom_complet, lat, lng, rayon_geofence),
                 aidant:profiles!aidant_id(nom)
             `)
-            .eq("statut_validation", "En cours");
+            .eq("statut", "En cours");
 
         if (!activeVisits) return res.json([]);
 
