@@ -148,30 +148,41 @@ router.post("/validate", middleware(["COORDINATEUR"]), async (req, res) => {
  */
 router.get("/", middleware(["COORDINATEUR", "AIDANT", "FAMILLE"]), async (req, res) => {
     try {
+        console.log(`🔍 [VISITES] Requête pour user: ${req.user.userId}, Rôle: ${req.user.role}`);
+        
+        // Requête simplifiée : Supabase résout le lien automatiquement par le nom de la colonne
         let query = supabase.from("visites").select(`
             *,
-            patient:patients!visites_patient_id_fkey (nom_complet, adresse),
-            aidant:profiles!visites_aidant_id_fkey (nom)
+            patient:patients (nom_complet, adresse),
+            aidant:profiles (nom)
         `);
 
+        // Filtre selon le rôle
         if (req.user.role === "AIDANT") {
             query = query.eq("aidant_id", req.user.userId);
+            console.log("🛠️ Filtrage par Aidant");
         } else if (req.user.role === "FAMILLE") {
-            const { data: p } = await supabase.from("patients").select("id").eq("famille_user_id", req.user.userId).maybeSingle();
+            const { data: p, error: pErr } = await supabase.from("patients").select("id").eq("famille_user_id", req.user.userId).maybeSingle();
+            if (pErr) throw pErr;
             if (!p) return res.json([]);
             query = query.eq("patient_id", p.id).eq("statut_validation", "Validé");
+            console.log("🏠 Filtrage par Famille pour patient:", p.id);
         }
 
         const { data, error } = await query.order("heure_debut", { ascending: false });
-        if (error) throw error;
-        res.json(data);
+        
+        if (error) {
+            console.error("❌ SQL ERROR [Visites]:", error);
+            return res.status(500).json({ error: error.message });
+        }
+
+        console.log(`✅ [VISITES] Succès, ${data ? data.length : 0} items retournés.`);
+        res.json(data || []);
     } catch (err) {
-        console.error("Erreur Visites:", err.message);
+        console.error("💥 SYSTEM CRASH [Visites]:", err.message);
         res.status(500).json({ error: err.message });
     }
 });
-
-
 
 /**
  * 📏 Formule de Haversine : Calcule la distance entre deux points (en mètres)
