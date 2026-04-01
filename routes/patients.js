@@ -6,11 +6,8 @@ const middleware = require("../middleware"); // On utilise le middleware complet
 // LISTER LES PATIENTS (Corrigé pour joindre les infos de la famille)
 router.get("/", middleware(["COORDINATEUR", "FAMILLE", "AIDANT"]), async (req, res) => {
   // On joint le nom de la famille et du coordinateur pour un affichage complet
-  let query = supabase.from("patients").select(`
-        *,
-        famille:famille_user_id (nom, email, telephone),
-        coordinateur:coordinateur_id (nom)
-    `);
+let query = supabase.from("visites").select("*");
+
 
   // Si c'est un compte Famille, il ne voit que son proche
   if (req.user.role === "FAMILLE") {
