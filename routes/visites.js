@@ -18,24 +18,19 @@ router.post("/start", middleware(["AIDANT"]), async (req, res) => {
         aidant_id: req.user.userId,
         heure_debut: new Date(),
         gps_start: gps_start,
-        statut: "En cours",
+        statut: "En cours", 
       }])
-      .select(`*, patient:patients(nom_complet, famille_user_id, famille:famille_user_id(email, nom))`)
+      .select() /
       .single();
 
-    if (error) throw error;
-
-if (visite.patient && visite.patient.famille_user_id) {
-    sendPushNotification(
-        visite.patient.famille_user_id,
-        "🔔 SPS : Début d'intervention",
-        `L'intervenant vient d'arriver au domicile de ${visite.patient.nom_complet}.`,
-        "/#feed"
-    );
-}
+    if (error) {
+        console.error("Erreur Supabase Insert:", error);
+        throw error;
+    }
 
     res.json({ status: "success", visite_id: visite.id });
   } catch (err) {
+    console.error("Crash Route Start:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
