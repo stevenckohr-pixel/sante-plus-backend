@@ -3,47 +3,28 @@ const express = require("express");
 const router = express.Router();
 const supabase = require("../supabaseClient");
 const middleware = require("../middleware");
-const { sendPushNotification } = require("../utils"); // 👈 Indispensable pour la Phase 4
+const { sendPushNotification } = require("../utils"); 
 
 /**
  * 📊 1. LISTER LES ABONNEMENTS (Optimisé)
  */
 router.get("/", middleware(["COORDINATEUR", "FAMILLE"]), async (req, res) => {
   try {
-    console.log(`📊 [BILLING] Requête pour user: ${req.user.userId}`);
-
     let query = supabase.from("abonnements").select(`
         *,
-        patient:patients (id, nom_complet, formule, famille_user_id)
+        patient:patient_id (id, nom_complet, formule, famille_user_id)
     `);
 
     if (req.user.role === "FAMILLE") {
-      const { data: patientData, error: pError } = await supabase
-        .from("patients")
-        .select("id")
-        .eq("famille_user_id", req.user.userId)
-        .maybeSingle();
-
-      if (pError) throw pError;
-      if (!patientData) {
-          console.warn("⚠️ [BILLING] Famille sans patient lié.");
-          return res.json([]);
-      }
-      query = query.eq("patient_id", patientData.id);
+      const { data: p } = await supabase.from("patients").select("id").eq("famille_user_id", req.user.userId).maybeSingle();
+      if (!p) return res.json([]);
+      query = query.eq("patient_id", p.id);
     }
 
     const { data, error } = await query.order("created_at", { ascending: false });
-    
-    if (error) {
-        console.error("❌ SQL ERROR [Billing]:", error);
-        return res.status(500).json({ error: error.message });
-    }
-
-    console.log(`✅ [BILLING] Succès, ${data ? data.length : 0} factures retournées.`);
-    res.json(data || []); 
-
+    if (error) throw error;
+    res.json(data || []);
   } catch (err) {
-    console.error("💥 SYSTEM CRASH [Billing]:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
