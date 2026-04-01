@@ -3,22 +3,42 @@ const router = express.Router();
 const supabase = require("../supabaseClient");
 const middleware = require("../middleware"); // On utilise le middleware complet
 
-// LISTER LES PATIENTS (Corrigé pour joindre les infos de la famille)
 router.get("/", middleware(["COORDINATEUR", "FAMILLE", "AIDANT"]), async (req, res) => {
-  // On joint le nom de la famille et du coordinateur pour un affichage complet
-let query = supabase.from("visites").select("*");
+  try {
+    console.log(`🔍 [PATIENTS] Chargement pour : ${req.user.role}`);
 
+    // Requête de base
+    let query = supabase.from("patients").select(`
+        *,
+        famille:famille_user_id (nom, email, telephone)
+    `);
 
-  // Si c'est un compte Famille, il ne voit que son proche
-  if (req.user.role === "FAMILLE") {
-    query = query.eq("famille_user_id", req.user.userId);
+    // 🛡️ FILTRAGE PAR RÔLE
+    if (req.user.role === "FAMILLE") {
+      // Une famille ne voit que son propre dossier
+      query = query.eq("famille_user_id", req.user.userId);
+    } 
+    else if (req.user.role === "AIDANT") {
+      // Un aidant ne voit que les patients qui sont dans son planning
+      const { data: planning } = await supabase
+        .from("planning")
+        .select("patient_id")
+        .eq("aidant_id", req.user.userId);
+      
+      const patientIds = planning ? planning.map(p => p.patient_id) : [];
+      query = query.in("id", patientIds);
+    }
+
+    const { data, error } = await query.order("created_at", { ascending: false });
+
+    if (error) throw error;
+    res.json(data || []);
+
+  } catch (err) {
+    console.error("❌ Erreur Route Patients:", err.message);
+    res.status(500).json({ error: err.message });
   }
-
-  const { data, error } = await query.order("created_at", { ascending: false });
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
 });
-
 // AJOUTER UN NOUVEAU PATIENT (Coordinateur)
 router.post("/add", middleware(["COORDINATEUR"]), async (req, res) => {
   const { nom_complet, adresse, formule } = req.body;
