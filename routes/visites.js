@@ -148,42 +148,37 @@ router.post("/validate", middleware(["COORDINATEUR"]), async (req, res) => {
  */
 router.get("/", middleware(["COORDINATEUR", "AIDANT", "FAMILLE"]), async (req, res) => {
     try {
-        console.log(`🔍 [VISITES] Requête pour user: ${req.user.userId}, Rôle: ${req.user.role}`);
-        
-        // Requête simplifiée : Supabase résout le lien automatiquement par le nom de la colonne
+        console.log("📡 [VISITES] Récupération...");
+
         let query = supabase.from("visites").select(`
             *,
             patient:patient_id (nom_complet, adresse),
             aidant:aidant_id (nom)
         `);
 
-        // Filtre selon le rôle
         if (req.user.role === "AIDANT") {
             query = query.eq("aidant_id", req.user.userId);
-            console.log("🛠️ Filtrage par Aidant");
         } else if (req.user.role === "FAMILLE") {
-            const { data: p, error: pErr } = await supabase.from("patients").select("id").eq("famille_user_id", req.user.userId).maybeSingle();
-            if (pErr) throw pErr;
+            // Trouver le patient de cette famille
+            const { data: p } = await supabase.from("patients")
+                .select("id")
+                .eq("famille_user_id", req.user.userId)
+                .maybeSingle();
+            
             if (!p) return res.json([]);
-            query = query.eq("patient_id", p.id).eq("statut_validation", "Validé");
-            console.log("🏠 Filtrage par Famille pour patient:", p.id);
+            query = query.eq("patient_id", p.id).eq("statut", "Validé");
         }
 
         const { data, error } = await query.order("heure_debut", { ascending: false });
         
-        if (error) {
-            console.error("❌ SQL ERROR [Visites]:", error);
-            return res.status(500).json({ error: error.message });
-        }
-
-        console.log(`✅ [VISITES] Succès, ${data ? data.length : 0} items retournés.`);
+        if (error) throw error;
         res.json(data || []);
+
     } catch (err) {
-        console.error("💥 SYSTEM CRASH [Visites]:", err.message);
+        console.error("❌ Erreur Route Visites:", err.message);
         res.status(500).json({ error: err.message });
     }
 });
-
 /**
  * 📏 Formule de Haversine : Calcule la distance entre deux points (en mètres)
  */
