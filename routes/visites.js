@@ -495,6 +495,58 @@ router.get("/trajectory/:visite_id", middleware(['COORDINATEUR']), async (req, r
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-
+/**
+ * 📍 POSITION EN DIRECT POUR LA FAMILLE
+ */
+router.get("/live-position/:visite_id", middleware(["FAMILLE", "COORDINATEUR"]), async (req, res) => {
+    const { visite_id } = req.params;
+    
+    try {
+        // Vérifier que la famille a accès à cette visite
+        if (req.user.role === "FAMILLE") {
+            const { data: visite } = await supabase
+                .from("visites")
+                .select("patient:patients(famille_user_id)")
+                .eq("id", visite_id)
+                .single();
+            
+            if (!visite?.patient || visite.patient.famille_user_id !== req.user.userId) {
+                return res.status(403).json({ error: "Accès non autorisé" });
+            }
+        }
+        
+        // Récupérer la dernière position
+        const { data: lastPos } = await supabase
+            .from("positions_live")
+            .select("lat, lng, created_at")
+            .eq("visite_id", visite_id)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+        
+        if (!lastPos) {
+            return res.json({ hasPosition: false });
+        }
+        
+        // Récupérer les infos de l'aidant
+        const { data: visite } = await supabase
+            .from("visites")
+            .select("aidant:profiles!aidant_id(nom, photo_url)")
+            .eq("id", visite_id)
+            .single();
+        
+        res.json({
+            hasPosition: true,
+            lat: lastPos.lat,
+            lng: lastPos.lng,
+            last_update: lastPos.created_at,
+            aidant_nom: visite?.aidant?.nom || "Intervenant",
+            aidant_photo: visite?.aidant?.photo_url || null
+        });
+        
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 
 module.exports = router;
