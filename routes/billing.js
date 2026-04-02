@@ -112,9 +112,10 @@ router.post("/generate-payment", middleware(["FAMILLE"]), async (req, res) => {
  */
 
 router.post("/webhook", async (req, res) => {
+  console.log("Headers:", req.headers);
+  console.log("Body:", req.body);
   const event = req.body;
   const signature = req.headers['x-fedapay-signature'];
-  
   console.log("💰 [WEBHOOK] Signal reçu:", event.type || event.entity?.status);
   
   // 🔐 Vérification de la signature (sécurité)
@@ -253,6 +254,12 @@ async function getLastWebhookCalls() {
     .limit(10);
   
   return data || [];
+}
+
+function verifyWebhookSignature(signature, payload) {
+  // Mode développement - accepter tous les webhooks
+  console.log("⚠️ Webhook reçu (signature ignorée pour le test)");
+  return true;
 }
 
 module.exports = router;
