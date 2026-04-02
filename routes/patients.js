@@ -41,19 +41,25 @@ router.get("/", middleware(["COORDINATEUR", "FAMILLE", "AIDANT"]), async (req, r
 // ➕ 2. AJOUTER UN PATIENT
 // ============================================================
 router.post("/add", middleware(["COORDINATEUR"]), async (req, res) => {
-  const { nom_complet, adresse, formule } = req.body;
+    const { nom_complet, prenom, nom, age, sexe, telephone, adresse, contact_urgence, formule } = req.body;
 
-  const { data, error } = await supabase.from("patients").insert([
-    {
-      nom_complet,
-      adresse,
-      formule,
-      coordinateur_id: req.user.userId,
-    },
-  ]);
+    const { data, error } = await supabase.from("patients").insert([
+        {
+            nom_complet,
+            prenom,
+            nom,
+            age,
+            sexe,
+            telephone,
+            adresse,
+            contact_urgence,
+            formule,
+            coordinateur_id: req.user.userId,
+        },
+    ]);
 
-  if (error) return res.status(500).json({ error: error.message });
-  res.json({ status: "success" });
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ status: "success" });
 });
 
 // ============================================================
