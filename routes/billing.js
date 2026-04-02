@@ -134,58 +134,82 @@ router.post("/webhook", async (req, res) => {
     
     if (!abonnement_id) {
       console.error("❌ [WEBHOOK] Pas d'abonnement_id dans les métadonnées");
-      return res.sendStatus(200); // On répond quand même 200 pour éviter les tentatives
+      return res.sendStatus(200);
     }
     
     console.log(`✅ [FEDAPAY] Paiement confirmé - Facture: ${abonnement_id}, Montant: ${montant_recu} CFA`);
     
     try {
-      // 1. Mise à jour de la facture
+      // 1. Récupérer l'abonnement avant mise à jour
+      const { data: oldAbo, error: fetchError } = await supabase
+        .from("abonnements")
+        .select('*, patient:patients(id, nom_complet, famille_user_id)')
+        .eq("id", abonnement_id)
+        .single();
+      
+      if (fetchError) throw fetchError;
+      
+      const paymentDate = new Date();
+      const endDate = calculateSubscriptionEndDate(paymentDate);
+      
+      // 2. Mise à jour de la facture avec les dates
       const { data: abo, error: errAbo } = await supabase
         .from("abonnements")
         .update({
           montant_paye: montant_recu,
           statut: "Payé",
-          date_paiement: new Date().toISOString(),
+          date_paiement: paymentDate.toISOString(),
+          date_fin_abonnement: endDate.toISOString(),
           reference_paiement: reference,
           mode_paiement: moyen_paiement
         })
         .eq("id", abonnement_id)
-        .select('*, patient:patients(nom_complet, famille_user_id, id)')
+        .select('*, patient:patients(id, nom_complet, famille_user_id)')
         .single();
       
       if (errAbo) throw errAbo;
       
       if (abo && abo.patient) {
-        // 2. Déblocage automatique du patient
+        // 3. Mise à jour du patient avec les nouvelles dates
         await supabase
           .from("patients")
-          .update({ statut_paiement: "A jour" })
+          .update({ 
+            statut_paiement: "A jour",
+            date_dernier_paiement: paymentDate.toISOString(),
+            date_fin_abonnement: endDate.toISOString()
+          })
           .eq("id", abo.patient.id);
         
-        // 3. 🔔 Notification Push à la famille
+        // 4. Formater les dates pour l'affichage
+        const endDateFormatted = endDate.toLocaleDateString('fr-FR', {
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric'
+        });
+        
+        // 5. 🔔 Notification Push à la famille avec la date de fin
         if (abo.patient.famille_user_id) {
           await sendPushNotification(
             abo.patient.famille_user_id,
-            "💎 Paiement confirmé",
-            `Le paiement de ${montant_recu.toLocaleString()} CFA pour ${abo.patient.nom_complet} a été reçu. Merci pour votre confiance !`,
-            "/#billing"
+            "💎 Abonnement activé",
+            `Paiement reçu pour ${abo.patient.nom_complet}. Votre abonnement est valable jusqu'au ${endDateFormatted}.`,
+            "/#dashboard"
           );
         }
         
-        // 4. 📝 Log de l'événement pour traçabilité
+        // 6. 📝 Log de l'événement pour traçabilité
         await supabase.from("logs").insert([{
           user_id: abo.patient.famille_user_id,
           action: "paiement_auto",
           details: `Facture ${abonnement_id} payée via ${moyen_paiement}: ${montant_recu} CFA`,
-          reference: reference
+          reference: reference,
+          date_fin_abonnement: endDate.toISOString()
         }]);
         
-        console.log(`✅ [WEBHOOK] Facture ${abonnement_id} traitée avec succès`);
+        console.log(`✅ [WEBHOOK] Facture ${abonnement_id} traitée - Valable jusqu'au ${endDateFormatted}`);
       }
     } catch (err) {
       console.error("❌ [WEBHOOK ERROR]:", err.message);
-      // On ne retourne pas d'erreur pour ne pas bloquer FedaPay
     }
   }
   
@@ -193,6 +217,15 @@ router.post("/webhook", async (req, res) => {
   res.sendStatus(200);
 });
 
+/**
+ * 📅 CALCULER LA DATE DE FIN D'ABONNEMENT (1 mois + 5 jours)
+ */
+function calculateSubscriptionEndDate(paymentDate) {
+  const endDate = new Date(paymentDate);
+  endDate.setMonth(endDate.getMonth() + 1); // +1 mois
+  endDate.setDate(endDate.getDate() + 5);   // +5 jours
+  return endDate;
+}
 /**
  * 🔐 Vérification de la signature webhook (sécurité renforcée)
  */
