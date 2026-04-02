@@ -121,4 +121,34 @@ router.post("/update-gps", middleware(['COORDINATEUR', 'AIDANT']), async (req, r
     }
 });
 
+
+
+/**
+ * 💳 METTRE À JOUR LE PACK D'UN PATIENT
+ */
+router.put("/:id/update-pack", middleware(["FAMILLE", "COORDINATEUR"]), async (req, res) => {
+    const { id } = req.params;
+    const { type_pack, montant_prevu } = req.body;
+    
+    // Vérification que la famille a accès à ce patient
+    if (req.user.role === "FAMILLE") {
+        const { data: patient } = await supabase
+            .from("patients")
+            .select("famille_user_id")
+            .eq("id", id)
+            .single();
+        
+        if (!patient || patient.famille_user_id !== req.user.userId) {
+            return res.status(403).json({ error: "Accès non autorisé" });
+        }
+    }
+    
+    const { error } = await supabase
+        .from("patients")
+        .update({ type_pack, montant_prevu })
+        .eq("id", id);
+    
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ status: "success" });
+});
 module.exports = router;
