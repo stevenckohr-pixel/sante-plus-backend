@@ -15,11 +15,17 @@ router.get("/", middleware(["COORDINATEUR", "FAMILLE"]), async (req, res) => {
         patient:patient_id (id, nom_complet, formule, famille_user_id)
     `);
 
-    if (req.user.role === "FAMILLE") {
-      const { data: p } = await supabase.from("patients").select("id").eq("famille_user_id", req.user.userId).maybeSingle();
-      if (!p) return res.json([]);
-      query = query.eq("patient_id", p.id);
-    }
+      // Vérifie que la famille ne voit que ses propres factures
+      if (req.user.role === "FAMILLE") {
+        const { data: patient } = await supabase
+          .from("patients")
+          .select("id")
+          .eq("famille_user_id", req.user.userId)
+          .single();
+        
+        if (!patient) return res.json([]);
+        query = query.eq("patient_id", patient.id);
+      }
 
     const { data, error } = await query.order("created_at", { ascending: false });
     if (error) throw error;
