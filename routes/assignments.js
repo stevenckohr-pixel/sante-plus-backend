@@ -49,7 +49,15 @@ router.get("/", middleware(["COORDINATEUR", "AIDANT"]), async (req, res) => {
  * ➕ 2. ASSIGNER UN PATIENT À UN AIDANT (Coordinateur uniquement)
  */
 router.post("/assign", middleware(["COORDINATEUR"]), async (req, res) => {
-    const { patient_id, aidant_id, date_prevue, heure_prevue, notes } = req.body;
+    const { 
+        patient_id, 
+        aidant_id, 
+        type_assignation,
+        date_debut,
+        date_fin,
+        heure_prevue,
+        notes 
+    } = req.body;
 
     if (!patient_id || !aidant_id) {
         return res.status(400).json({ error: "Patient et aidant requis" });
@@ -79,57 +87,95 @@ router.post("/assign", middleware(["COORDINATEUR"]), async (req, res) => {
             return res.status(404).json({ error: "Aidant introuvable ou rôle incorrect" });
         }
 
-        // Vérifier si une assignation active existe déjà
-        const { data: existing, error: existingErr } = await supabase
-            .from("planning")
-            .select("id")
-            .eq("patient_id", patient_id)
-            .eq("aidant_id", aidant_id)
-            .eq("est_actif", true)
-            .maybeSingle();
+        const assignType = type_assignation || 'permanente';
+        
+        // Pour les assignations permanentes, vérifier si une existe déjà
+        if (assignType === 'permanente') {
+            const { data: existing, error: existingErr } = await supabase
+                .from("planning")
+                .select("id")
+                .eq("patient_id", patient_id)
+                .eq("aidant_id", aidant_id)
+                .eq("est_actif", true)
+                .eq("type_assignation", "permanente")
+                .maybeSingle();
 
-        if (existing) {
-            return res.status(400).json({ error: "Ce patient est déjà assigné à cet aidant" });
+            if (existing) {
+                return res.status(400).json({ error: "Ce patient a déjà un aidant permanent assigné" });
+            }
+        }
+
+        // Construction des données d'assignation
+        const assignData = {
+            patient_id,
+            aidant_id,
+            notes_coordinateur: notes || "",
+            type_assignation: assignType,
+            est_actif: true,
+            date_prevue: date_debut || new Date().toISOString().split('T')[0]
+        };
+
+        // Ajout des champs selon le type
+        if (assignType === 'temporelle' && date_fin) {
+            assignData.date_fin = date_fin;
+        }
+        
+        if (assignType === 'ponctuelle') {
+            assignData.heure_prevue = heure_prevue || "09:00";
+            assignData.statut = "Planifié";
         }
 
         // Créer l'assignation
         const { data: newAssignment, error } = await supabase
             .from("planning")
-            .insert([{
-                patient_id,
-                aidant_id,
-                date_prevue: date_prevue || new Date().toISOString().split('T')[0],
-                heure_prevue: heure_prevue || "09:00",
-                notes_coordinateur: notes || "",
-                statut: "Planifié",
-                est_actif: true
-            }])
+            .insert([assignData])
             .select()
             .single();
 
         if (error) throw error;
 
+        // Message personnalisé selon le type
+        let messageAidant = "";
+        let messageFamille = "";
+        
+        switch(assignType) {
+            case 'permanente':
+                messageAidant = `Vous êtes maintenant l'aidant permanent de ${patient.nom_complet}.`;
+                messageFamille = `${aidant.nom} est maintenant l'aidant permanent de votre proche ${patient.nom_complet}.`;
+                break;
+            case 'temporelle':
+                const finDate = new Date(date_fin).toLocaleDateString('fr-FR');
+                messageAidant = `Vous êtes assigné à ${patient.nom_complet} jusqu'au ${finDate}.`;
+                messageFamille = `${aidant.nom} accompagne votre proche ${patient.nom_complet} jusqu'au ${finDate}.`;
+                break;
+            case 'ponctuelle':
+                const dateVisite = new Date(date_debut).toLocaleDateString('fr-FR');
+                messageAidant = `Visite ponctuelle chez ${patient.nom_complet} le ${dateVisite} à ${heure_prevue || '09:00'}.`;
+                messageFamille = `Une visite ponctuelle de ${aidant.nom} est prévue le ${dateVisite} pour ${patient.nom_complet}.`;
+                break;
+        }
+
         // 🔔 Notifier l'aidant
         sendPushNotification(
             aidant_id,
             "📋 Nouvelle assignation",
-            `Vous avez été assigné au patient ${patient.nom_complet}.`,
+            messageAidant,
             "/#planning"
         );
 
-        // 🔔 Notifier la famille (optionnel)
+        // 🔔 Notifier la famille
         if (patient.famille_user_id) {
             sendPushNotification(
                 patient.famille_user_id,
-                "👨‍⚕️ Nouvel intervenant",
-                `${aidant.nom} a été assigné à votre proche ${patient.nom_complet}.`,
+                assignType === 'ponctuelle' ? "📅 Visite programmée" : "👨‍⚕️ Nouvel intervenant",
+                messageFamille,
                 "/#patients"
             );
         }
 
         res.json({ 
             status: "success", 
-            message: `Patient assigné à ${aidant.nom}`,
+            message: `Assignation ${assignType === 'permanente' ? 'permanente' : assignType === 'temporelle' ? 'périodique' : 'ponctuelle'} créée`,
             assignment: newAssignment
         });
 
@@ -138,7 +184,6 @@ router.post("/assign", middleware(["COORDINATEUR"]), async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
-
 /**
  * ❌ 3. DÉLIER UN PATIENT D'UN AIDANT (Coordinateur uniquement)
  */
