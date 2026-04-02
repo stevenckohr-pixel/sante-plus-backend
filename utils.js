@@ -4,21 +4,16 @@ const supabase = require("./supabaseClient");
 
 // Configuration du moteur Push avec les clés de sécurité VAPID
 webpush.setVapidDetails(
-  "mailto: stevenckohr@gmail.com", // Email de contact pour les serveurs de push (Google/Apple)
+  "mailto: stevenckohr@gmail.com",
   process.env.VAPID_PUBLIC_KEY,
   process.env.VAPID_PRIVATE_KEY,
 );
 
 /**
- * 🔔 ENVOYER UNE NOTIFICATION PUSH NATIVE (WhatsApp Style)
- * @param {string} userId - ID de l'utilisateur (Profiles) à notifier
- * @param {string} title - Titre de la notification
- * @param {string} message - Corps du message
- * @param {string} url - Lien vers lequel rediriger au clic
+ * 🔔 ENVOYER UNE NOTIFICATION PUSH NATIVE
  */
 async function sendPushNotification(userId, title, message, url = "/") {
   try {
-    // 1. Récupération de tous les terminaux enregistrés pour cet utilisateur
     const { data: subs, error } = await supabase
       .from("push_subscriptions")
       .select("*")
@@ -28,7 +23,6 @@ async function sendPushNotification(userId, title, message, url = "/") {
 
     const payload = JSON.stringify({ title, message, url });
 
-    // 2. Envoi simultané à tous les appareils (Promesses en parallèle)
     const notifications = subs.map((sub) => {
       const subscription = {
         endpoint: sub.endpoint,
@@ -36,11 +30,8 @@ async function sendPushNotification(userId, title, message, url = "/") {
       };
 
       return webpush.sendNotification(subscription, payload).catch((err) => {
-        // 410 = Gone / 404 = Not Found : L'utilisateur a désinstallé l'app ou réinitialisé son tel
         if (err.statusCode === 410 || err.statusCode === 404) {
-          console.log(
-            `🧹 Nettoyage : Suppression d'un jeton push expiré pour l'user ${userId}`,
-          );
+          console.log(`🧹 Nettoyage : Suppression d'un jeton push expiré pour l'user ${userId}`);
           return supabase.from("push_subscriptions").delete().eq("id", sub.id);
         }
         console.error("⚠️ Erreur technique envoi Push:", err.statusCode);
@@ -55,9 +46,6 @@ async function sendPushNotification(userId, title, message, url = "/") {
 
 /**
  * 📧 ENVOYER UN EMAIL VIA BREVO API
- * @param {string} toEmail - Email du destinataire
- * @param {string} subject - Sujet du mail
- * @param {string} htmlContent - Contenu au format HTML
  */
 async function sendEmailAPI(toEmail, subject, htmlContent) {
   if (!process.env.BREVO_API_KEY) {
@@ -68,7 +56,7 @@ async function sendEmailAPI(toEmail, subject, htmlContent) {
   try {
     await axios.post(
       "https://api.brevo.com/v3/smtp/email",
-        {
+      {
         sender: {
           name: "Santé Plus Services",
           email: "contact@terre-des-enfants-epanouis.org", 
@@ -95,6 +83,9 @@ async function sendEmailAPI(toEmail, subject, htmlContent) {
   }
 }
 
+// ============================================================
+// 📅 FONCTIONS DE GESTION DES ABONNEMENTS (AJOUTÉES)
+// ============================================================
 
 /**
  * 📅 CALCULER LA DATE DE FIN D'ABONNEMENT (selon la durée)
@@ -104,30 +95,78 @@ async function sendEmailAPI(toEmail, subject, htmlContent) {
  * @returns {Date} Date de fin
  */
 function calculateSubscriptionEndDate(startDate, durationMonths, graceDays = 5) {
-    const endDate = new Date(startDate);
-    endDate.setMonth(endDate.getMonth() + durationMonths);
-    endDate.setDate(endDate.getDate() + graceDays);
-    return endDate;
+  const endDate = new Date(startDate);
+  endDate.setMonth(endDate.getMonth() + durationMonths);
+  endDate.setDate(endDate.getDate() + graceDays);
+  return endDate;
 }
 
 /**
  * 📊 CALCULER LES JOURS RESTANTS
+ * @param {Date|string} endDate - Date de fin
+ * @returns {number} Nombre de jours restants
  */
 function getDaysRemaining(endDate) {
-    if (!endDate) return 0;
-    const today = new Date();
-    const diffTime = new Date(endDate) - today;
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    return diffDays > 0 ? diffDays : 0;
+  if (!endDate) return 0;
+  const today = new Date();
+  const diffTime = new Date(endDate) - today;
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  return diffDays > 0 ? diffDays : 0;
 }
 
 /**
  * 🔒 VÉRIFIER SI L'ABONNEMENT EST VALIDE
+ * @param {Date|string} endDate - Date de fin
+ * @returns {boolean} true si valide
  */
 function isSubscriptionValid(endDate) {
-    if (!endDate) return false;
-    const today = new Date();
-    return today <= new Date(endDate);
+  if (!endDate) return false;
+  const today = new Date();
+  return today <= new Date(endDate);
 }
 
-module.exports = { sendEmailAPI, sendPushNotification };
+/**
+ * 📦 Récupérer la durée en mois selon l'ID du pack
+ * @param {string} packId - ID du pack (ex: MENSUEL, TRIMESTRIEL, ANNUEL)
+ * @returns {number} Durée en mois
+ */
+function getDurationFromPack(packId) {
+  if (!packId) return 1;
+  if (packId.includes('TRIMESTRIEL') || packId.includes('trimestriel')) return 3;
+  if (packId.includes('SEMESTRIEL') || packId.includes('semestriel')) return 6;
+  if (packId.includes('ANNUEL') || packId.includes('annuel')) return 12;
+  return 1; // MENSUEL par défaut
+}
+
+/**
+ * 💰 Calculer le prix avec réduction selon la durée
+ * @param {number} basePrice - Prix mensuel de base
+ * @param {number} durationMonths - Durée en mois
+ * @returns {number} Prix total avec réduction
+ */
+function calculateDiscountedPrice(basePrice, durationMonths) {
+  if (durationMonths === 3) {
+    return Math.round(basePrice * durationMonths * 0.95); // -5%
+  }
+  if (durationMonths === 6) {
+    return Math.round(basePrice * durationMonths * 0.90); // -10%
+  }
+  if (durationMonths === 12) {
+    return Math.round(basePrice * durationMonths * 0.85); // -15%
+  }
+  return basePrice * durationMonths;
+}
+
+// ============================================================
+// 📤 EXPORTS
+// ============================================================
+
+module.exports = { 
+  sendEmailAPI, 
+  sendPushNotification,
+  calculateSubscriptionEndDate,
+  getDaysRemaining,
+  isSubscriptionValid,
+  getDurationFromPack,
+  calculateDiscountedPrice
+};
