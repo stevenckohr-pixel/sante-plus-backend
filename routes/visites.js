@@ -11,6 +11,21 @@ router.post("/start", middleware(["AIDANT"]), async (req, res) => {
   const { patient_id, gps_start } = req.body;
 
   try {
+
+
+        const { data: planning, error: planningErr } = await supabase
+            .from("planning")
+            .select("id")
+            .eq("patient_id", patient_id)
+            .eq("aidant_id", req.user.userId)
+            .maybeSingle();
+
+        if (planningErr || !planning) {
+            return res.status(403).json({ 
+                error: "Vous n'êtes pas autorisé à intervenir sur ce dossier" 
+            });
+        }
+    
     const { data: visite, error } = await supabase
       .from("visites")
       .insert([{
