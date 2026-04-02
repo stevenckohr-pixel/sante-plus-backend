@@ -219,35 +219,160 @@ router.get("/", middleware(["COORDINATEUR", "AIDANT", "FAMILLE"]), async (req, r
  * 🛰️ TRACKING GPS (Appelé par le mobile)
  */
 router.post("/track", middleware(['AIDANT']), async (req, res) => {
-    const { visite_id, lat, lng } = req.body;
+    const { visite_id, lat, lng, accuracy } = req.body;
+    
     try {
+        // 1. Enregistrer la position
         await supabase.from("positions_live").insert([{
             visite_id,
             aidant_id: req.user.userId,
-            lat, lng
+            lat, 
+            lng,
+            accuracy: accuracy || 0,
+            created_at: new Date()
         }]);
 
-        const { data: visite } = await supabase
+        // 2. Récupérer les infos de la visite et du patient
+        const { data: visite, error: visitError } = await supabase
             .from("visites")
-            .select(`id, patient_id, patient:patients(lat, lng, rayon_geofence)`)
+            .select(`
+                id, 
+                patient_id, 
+                alerte_geofence,
+                notifie_arrivee,
+                patient:patients(id, lat, lng, rayon_geofence, nom_complet, famille_user_id),
+                aidant:profiles!aidant_id(id, nom, photo_url)
+            `)
             .eq("id", visite_id)
             .single();
 
-        if (visite && visite.patient.lat) {
+        if (visitError || !visite) {
+            console.error("❌ Visite non trouvée:", visitError);
+            return res.sendStatus(200);
+        }
+
+        // 3. Vérifier la géolocalisation par rapport au domicile du patient
+        if (visite.patient && visite.patient.lat) {
             const distance = getDistance(lat, lng, visite.patient.lat, visite.patient.lng);
             const rayonAutorise = visite.patient.rayon_geofence || 100;
+            const isInside = distance <= rayonAutorise;
 
-            if (distance > rayonAutorise) {
-                await supabase.from("visites").update({ 
-                    alerte_geofence: true,
-                    distance_max_constatee: distance 
-                }).eq("id", visite_id);
+            // Mettre à jour l'alerte geofence
+            if (distance > rayonAutorise && !visite.alerte_geofence) {
+                await supabase
+                    .from("visites")
+                    .update({ 
+                        alerte_geofence: true,
+                        distance_max_constatee: distance 
+                    })
+                    .eq("id", visite_id);
+            } else if (distance <= rayonAutorise && visite.alerte_geofence) {
+                await supabase
+                    .from("visites")
+                    .update({ alerte_geofence: false })
+                    .eq("id", visite_id);
+            }
+
+            // 4. 🔔 NOTIFICATION D'ARRIVÉE (quand l'aidant entre dans le périmètre)
+            const alreadyNotified = visite.notifie_arrivee;
+            const seuilNotification = 50; // 50 mètres pour déclencher la notification
+            
+            if (distance <= seuilNotification && !alreadyNotified && visite.patient.famille_user_id) {
+                // Marquer comme notifié
+                await supabase
+                    .from("visites")
+                    .update({ notifie_arrivee: true })
+                    .eq("id", visite_id);
+                
+                // Envoyer la notification push à la famille
+                const message = `🩺 ${visite.aidant?.nom || "L'aidant"} est arrivé${distance < 20 ? ' devant le domicile' : ' dans le quartier'} de ${visite.patient.nom_complet}.`;
+                
+                await sendPushNotification(
+                    visite.patient.famille_user_id,
+                    "🚪 L'aidant arrive",
+                    message,
+                    "/#feed"
+                );
+                
+                // Ajouter un message automatique dans le feed
+                await supabase.from("messages").insert([{
+                    patient_id: visite.patient_id,
+                    sender_id: req.user.userId,
+                    content: `📍 ${visite.aidant?.nom} est arrivé${distance < 20 ? ' au domicile' : ' dans le périmètre'} pour la visite.`,
+                    is_photo: false,
+                    type_media: 'STORY'
+                }]);
+                
+                console.log(`📢 Notification d'arrivée envoyée pour la visite ${visite_id}`);
+            }
+            
+            // 5. 🔔 NOTIFICATION DE DÉPART (quand l'aidant quitte le périmètre après être entré)
+            const wasNotified = visite.notifie_arrivee;
+            const quittePerimetre = distance > rayonAutorise * 1.5; // 1.5x le rayon
+            
+            if (wasNotified && quittePerimetre && visite.patient.famille_user_id) {
+                // Ne pas renvoyer trop souvent (cooldown de 30 minutes)
+                const lastLeaveKey = `last_leave_${visite_id}`;
+                const lastLeave = await supabase
+                    .from("visite_events")
+                    .select("created_at")
+                    .eq("visite_id", visite_id)
+                    .eq("event_type", "leave")
+                    .order("created_at", { ascending: false })
+                    .limit(1)
+                    .maybeSingle();
+                
+                let shouldNotify = true;
+                if (lastLeave?.created_at) {
+                    const timeSinceLastLeave = Date.now() - new Date(lastLeave.created_at).getTime();
+                    if (timeSinceLastLeave < 30 * 60 * 1000) { // 30 minutes
+                        shouldNotify = false;
+                    }
+                }
+                
+                if (shouldNotify) {
+                    await supabase.from("visite_events").insert([{
+                        visite_id,
+                        event_type: "leave",
+                        distance: distance
+                    }]);
+                    
+                    await sendPushNotification(
+                        visite.patient.famille_user_id,
+                        "👋 Fin de visite",
+                        `${visite.aidant?.nom} a quitté le domicile de ${visite.patient.nom_complet}.`,
+                        "/#feed"
+                    );
+                }
             }
         }
+        
         res.sendStatus(200);
-    } catch (err) { res.sendStatus(500); }
+        
+    } catch (err) { 
+        console.error("❌ Erreur tracking:", err.message);
+        res.sendStatus(500); 
+    }
 });
 
+/**
+ * 📏 Calculer la distance entre deux points GPS (formule de Haversine)
+ * Retourne la distance en mètres
+ */
+function getDistance(lat1, lon1, lat2, lon2) {
+    const R = 6371e3; // Rayon de la Terre en mètres
+    const φ1 = lat1 * Math.PI / 180;
+    const φ2 = lat2 * Math.PI / 180;
+    const Δφ = (lat2 - lat1) * Math.PI / 180;
+    const Δλ = (lon2 - lon1) * Math.PI / 180;
+
+    const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+              Math.cos(φ1) * Math.cos(φ2) *
+              Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+    return R * c; // Distance en mètres
+}
 /**
  * 📡 RADAR LIVE (Pour Coordinateur)
  */
@@ -370,15 +495,6 @@ router.get("/trajectory/:visite_id", middleware(['COORDINATEUR']), async (req, r
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-function getDistance(lat1, lon1, lat2, lon2) {
-    const R = 6371e3;
-    const p1 = lat1 * Math.PI/180;
-    const p2 = lat2 * Math.PI/180;
-    const dp = (lat2-lat1) * Math.PI/180;
-    const dl = (lon2-lon1) * Math.PI/180;
-    const a = Math.sin(dp/2) * Math.sin(dp/2) + Math.cos(p1) * Math.cos(p2) * Math.sin(dl/2) * Math.sin(dl/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    return R * c; 
-}
+
 
 module.exports = router;
