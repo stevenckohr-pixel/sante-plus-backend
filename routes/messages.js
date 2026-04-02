@@ -100,6 +100,36 @@ router.post(
 
     if (!content) return res.status(400).json({ error: "Le contenu est vide" });
 
+    // ============================================
+    // 🛡️ SÉCURITÉ : Vérifier que la famille n'écrit que sur SON dossier
+    // ============================================
+    if (req.user.role === "FAMILLE") {
+      const { data: patient } = await supabase
+        .from("patients")
+        .select("id")
+        .eq("id", patient_id)
+        .eq("famille_user_id", req.user.userId)
+        .single();
+      
+      if (!patient) {
+        return res.status(403).json({ error: "Vous ne pouvez pas écrire sur ce dossier" });
+      }
+    }
+
+    // Pour les AIDANTS, on peut aussi vérifier qu'ils sont assignés au patient
+    if (req.user.role === "AIDANT") {
+      const { data: planning } = await supabase
+        .from("planning")
+        .select("id")
+        .eq("patient_id", patient_id)
+        .eq("aidant_id", req.user.userId)
+        .single();
+      
+      if (!planning) {
+        return res.status(403).json({ error: "Vous n'êtes pas assigné à ce patient" });
+      }
+    }
+
     try {
       const { error } = await supabase.from("messages").insert([
         {
@@ -107,7 +137,7 @@ router.post(
           sender_id: req.user.userId,
           content,
           is_photo: is_photo || false,
-          reactions: {}, // Initialisation à vide
+          reactions: {},
         },
       ]);
 
@@ -118,5 +148,4 @@ router.post(
     }
   },
 );
-
 module.exports = router;
