@@ -110,56 +110,149 @@ router.post("/generate-payment", middleware(["FAMILLE"]), async (req, res) => {
  * ⚡ 4. WEBHOOK UNIVERSEL (FedaPay, Stripe, etc.)
  * Cette route reçoit les confirmations de paiement en arrière-plan.
  */
+
 router.post("/webhook", async (req, res) => {
   const event = req.body;
+  const signature = req.headers['x-fedapay-signature'];
   
-  console.log("💰 [WEBHOOK] Signal de paiement reçu...");
-
-  // --- LOGIQUE FEDAPAY ---
-  if (event.entity && event.entity.status === "approved") {
-    const abonnement_id = event.entity.metadata?.abonnement_id;
-    const montant_recu = event.entity.amount;
-
-    if (abonnement_id) {
-      console.log(`✅ [FEDAPAY] Validation auto pour la facture : ${abonnement_id}`);
+  console.log("💰 [WEBHOOK] Signal reçu:", event.type || event.entity?.status);
+  
+  // 🔐 Vérification de la signature (sécurité)
+  if (!verifyWebhookSignature(signature, JSON.stringify(event))) {
+    console.error("❌ [WEBHOOK] Signature invalide - Attaque potentielle");
+    return res.status(401).json({ error: "Signature invalide" });
+  }
+  
+  // 📝 Traitement selon le type d'événement
+  if (event.type === 'transaction.approved' || event.entity?.status === 'approved') {
+    const transaction = event.entity;
+    const abonnement_id = transaction.metadata?.abonnement_id;
+    const montant_recu = transaction.amount;
+    const reference = transaction.id;
+    const moyen_paiement = transaction.payment_method?.type || 'FEDAPAY';
+    
+    if (!abonnement_id) {
+      console.error("❌ [WEBHOOK] Pas d'abonnement_id dans les métadonnées");
+      return res.sendStatus(200); // On répond quand même 200 pour éviter les tentatives
+    }
+    
+    console.log(`✅ [FEDAPAY] Paiement confirmé - Facture: ${abonnement_id}, Montant: ${montant_recu} CFA`);
+    
+    try {
+      // 1. Mise à jour de la facture
+      const { data: abo, error: errAbo } = await supabase
+        .from("abonnements")
+        .update({
+          montant_paye: montant_recu,
+          statut: "Payé",
+          date_paiement: new Date().toISOString(),
+          reference_paiement: reference,
+          mode_paiement: moyen_paiement
+        })
+        .eq("id", abonnement_id)
+        .select('*, patient:patients(nom_complet, famille_user_id, id)')
+        .single();
       
-      try {
-        // 1. Mise à jour de la facture
-        const { data: abo, error: errAbo } = await supabase
-          .from("abonnements")
-          .update({
-            montant_paye: montant_recu,
-            statut: "Payé",
-            date_paiement: new Date().toISOString(),
-          })
-          .eq("id", abonnement_id)
-          .select('*, patient:patients(nom_complet, famille_user_id)')
-          .single();
-
-        if (abo) {
-          // 2. Déblocage automatique du patient
-          await supabase.from("patients").update({ statut_paiement: "A jour" }).eq("id", abo.patient_id);
-          
-          // 3. 🔔 Notification Push de remerciement
-          if (abo.patient?.famille_user_id) {
-              sendPushNotification(
-                  abo.patient.famille_user_id,
-                  "💎 Merci pour votre confiance",
-                  `Paiement reçu pour ${abo.patient.nom_complet}. Votre accès est actif !`,
-                  "/#feed"
-              );
-          }
+      if (errAbo) throw errAbo;
+      
+      if (abo && abo.patient) {
+        // 2. Déblocage automatique du patient
+        await supabase
+          .from("patients")
+          .update({ statut_paiement: "A jour" })
+          .eq("id", abo.patient.id);
+        
+        // 3. 🔔 Notification Push à la famille
+        if (abo.patient.famille_user_id) {
+          await sendPushNotification(
+            abo.patient.famille_user_id,
+            "💎 Paiement confirmé",
+            `Le paiement de ${montant_recu.toLocaleString()} CFA pour ${abo.patient.nom_complet} a été reçu. Merci pour votre confiance !`,
+            "/#billing"
+          );
         }
-      } catch (err) {
-        console.error("❌ [WEBHOOK ERROR]:", err.message);
+        
+        // 4. 📝 Log de l'événement pour traçabilité
+        await supabase.from("logs").insert([{
+          user_id: abo.patient.famille_user_id,
+          action: "paiement_auto",
+          details: `Facture ${abonnement_id} payée via ${moyen_paiement}: ${montant_recu} CFA`,
+          reference: reference
+        }]);
+        
+        console.log(`✅ [WEBHOOK] Facture ${abonnement_id} traitée avec succès`);
       }
+    } catch (err) {
+      console.error("❌ [WEBHOOK ERROR]:", err.message);
+      // On ne retourne pas d'erreur pour ne pas bloquer FedaPay
     }
   }
   
-  // --- LOGIQUE FUTURE (STRIPE / PAYPAL) ---
-  // if (event.type === 'checkout.session.completed') { ... }
-
-  res.sendStatus(200); // Réponse obligatoire à FedaPay
+  // Toujours répondre 200 pour éviter les tentatives de ré-envoi
+  res.sendStatus(200);
 });
+
+/**
+ * 🔐 Vérification de la signature webhook (sécurité renforcée)
+ */
+function verifyWebhookSignature(signature, payload) {
+  // En développement, on accepte sans signature
+  if (process.env.NODE_ENV === 'development') {
+    console.log("⚠️ [WEBHOOK] Mode développement - signature non vérifiée");
+    return true;
+  }
+  
+  if (!signature || !process.env.FEDAPAY_WEBHOOK_SECRET) {
+    console.error("❌ [WEBHOOK] Signature ou secret manquant");
+    return false;
+  }
+  
+  try {
+    const crypto = require('crypto');
+    const expectedSignature = crypto
+      .createHmac('sha256', process.env.FEDAPAY_WEBHOOK_SECRET)
+      .update(payload)
+      .digest('hex');
+    
+    return crypto.timingSafeEqual(
+      Buffer.from(signature),
+      Buffer.from(expectedSignature)
+    );
+  } catch (err) {
+    console.error("❌ [WEBHOOK] Erreur vérification signature:", err.message);
+    return false;
+  }
+}
+
+
+
+/**
+ * 🩺 VÉRIFICATION DE L'ÉTAT DU WEBHOOK (pour debug)
+ */
+router.get("/webhook/status", middleware(["COORDINATEUR"]), async (req, res) => {
+  const webhookUrl = `${process.env.API_URL || 'https://sante-plus-backend-ux1n.onrender.com'}/api/billing/webhook`;
+  
+  res.json({
+    status: "active",
+    webhook_url: webhookUrl,
+    secret_configured: !!process.env.FEDAPAY_WEBHOOK_SECRET,
+    environment: process.env.NODE_ENV || 'production',
+    last_webhook_calls: await getLastWebhookCalls()
+  });
+});
+
+/**
+ * 📊 Récupère les derniers appels webhook pour debug
+ */
+async function getLastWebhookCalls() {
+  const { data } = await supabase
+    .from("logs")
+    .select("created_at, details, reference")
+    .eq("action", "paiement_auto")
+    .order("created_at", { ascending: false })
+    .limit(10);
+  
+  return data || [];
+}
 
 module.exports = router;
