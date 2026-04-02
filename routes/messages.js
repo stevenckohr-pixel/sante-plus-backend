@@ -116,19 +116,20 @@ router.post(
       }
     }
 
-    // Pour les AIDANTS, on peut aussi vérifier qu'ils sont assignés au patient
-    if (req.user.role === "AIDANT") {
-      const { data: planning } = await supabase
-        .from("planning")
-        .select("id")
-        .eq("patient_id", patient_id)
-        .eq("aidant_id", req.user.userId)
-        .single();
-      
-      if (!planning) {
-        return res.status(403).json({ error: "Vous n'êtes pas assigné à ce patient" });
-      }
-    }
+       if (req.user.role === "AIDANT") {
+            const { data: planning } = await supabase
+                .from("planning")
+                .select("id")
+                .eq("patient_id", patient_id)
+                .eq("aidant_id", req.user.userId)
+                .single();
+            
+            if (!planning) {
+                return res.status(403).json({ 
+                    error: "Vous ne pouvez pas envoyer de message à ce patient" 
+                });
+            }
+        }
 
     try {
       const { error } = await supabase.from("messages").insert([
