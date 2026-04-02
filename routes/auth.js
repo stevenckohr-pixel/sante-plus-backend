@@ -453,4 +453,32 @@ router.put("/update-aidant-info", middleware(["AIDANT"]), async (req, res) => {
     res.json({ status: "success" });
 });
 
+
+
+
+router.put("/update-profile-full", middleware(), async (req, res) => {
+    const { prenom, nom, email, telephone, adresse } = req.body;
+    
+    const nomComplet = `${prenom || ''} ${nom || ''}`.trim();
+    
+    const { error } = await supabase
+        .from("profiles")
+        .update({ prenom, nom: nomComplet, email, telephone, adresse })
+        .eq("id", req.user.userId);
+    
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ status: "success" });
+});
+
+router.put("/update-aidant-full-info", middleware(["AIDANT"]), async (req, res) => {
+    const { competences, disponibilites, adresse } = req.body;
+    
+    const { error } = await supabase
+        .from("profiles")
+        .update({ competences, disponibilites, adresse })
+        .eq("id", req.user.userId);
+    
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ status: "success" });
+});
 module.exports = router;
