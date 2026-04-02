@@ -1,13 +1,14 @@
 const axios = require("axios");
+const crypto = require("crypto");
 const express = require("express");
 const router = express.Router();
 const supabase = require("../supabaseClient");
 const middleware = require("../middleware");
 const { sendPushNotification } = require("../utils"); 
 
-/**
- * 📊 1. LISTER LES ABONNEMENTS (Optimisé)
- */
+// ============================================================
+// 📊 1. LISTER LES ABONNEMENTS
+// ============================================================
 router.get("/", middleware(["COORDINATEUR", "FAMILLE"]), async (req, res) => {
   try {
     let query = supabase.from("abonnements").select(`
@@ -15,17 +16,16 @@ router.get("/", middleware(["COORDINATEUR", "FAMILLE"]), async (req, res) => {
         patient:patient_id (id, nom_complet, formule, famille_user_id)
     `);
 
-      // Vérifie que la famille ne voit que ses propres factures
-      if (req.user.role === "FAMILLE") {
-        const { data: patient } = await supabase
-          .from("patients")
-          .select("id")
-          .eq("famille_user_id", req.user.userId)
-          .single();
-        
-        if (!patient) return res.json([]);
-        query = query.eq("patient_id", patient.id);
-      }
+    if (req.user.role === "FAMILLE") {
+      const { data: patient } = await supabase
+        .from("patients")
+        .select("id")
+        .eq("famille_user_id", req.user.userId)
+        .single();
+      
+      if (!patient) return res.json([]);
+      query = query.eq("patient_id", patient.id);
+    }
 
     const { data, error } = await query.order("created_at", { ascending: false });
     if (error) throw error;
@@ -35,36 +35,57 @@ router.get("/", middleware(["COORDINATEUR", "FAMILLE"]), async (req, res) => {
   }
 });
 
-/**
- * ✅ 2. ENREGISTRER UN PAIEMENT MANUEL (Espèces / Chèque)
- */
+// ============================================================
+// ✅ 2. PAIEMENT MANUEL (Coordinateur)
+// ============================================================
 router.post("/pay", middleware(["COORDINATEUR"]), async (req, res) => {
   const { abonnement_id, montant } = req.body;
   try {
+    const paymentDate = new Date();
+    
     const { data: abo, error: errAbo } = await supabase
       .from("abonnements")
       .update({
         montant_paye: montant,
         statut: "Payé",
-        date_paiement: new Date().toISOString(),
+        date_paiement: paymentDate.toISOString(),
       })
       .eq("id", abonnement_id)
-      .select('*, patient:patients(nom_complet, famille_user_id)')
+      .select('*, patient:patients(id, nom_complet, famille_user_id, type_pack)')
       .single();
 
     if (errAbo) throw errAbo;
 
-    // Déblocage immédiat de l'accès patient
-    await supabase.from("patients").update({ statut_paiement: "A jour" }).eq("id", abo.patient_id);
+    if (abo && abo.patient) {
+      const durationMonths = getDurationFromPack(abo.patient.type_pack);
+      const endDate = calculateSubscriptionEndDate(paymentDate, durationMonths, 5);
+      
+      await supabase
+        .from("patients")
+        .update({ 
+          statut_paiement: "A jour",
+          date_dernier_paiement: paymentDate.toISOString(),
+          date_fin_abonnement: endDate.toISOString(),
+          duree_abonnement_mois: durationMonths
+        })
+        .eq("id", abo.patient.id);
+      
+      await supabase
+        .from("abonnements")
+        .update({
+          date_fin_abonnement: endDate.toISOString(),
+          duree_mois: durationMonths
+        })
+        .eq("id", abonnement_id);
 
-    // 🔔 Notification Push à la famille
-    if (abo.patient?.famille_user_id) {
+      if (abo.patient.famille_user_id) {
         sendPushNotification(
-            abo.patient.famille_user_id,
-            "✅ Paiement validé",
-            `Le paiement de l'abonnement pour ${abo.patient.nom_complet} a été reçu.`,
-            "/#billing"
+          abo.patient.famille_user_id,
+          "✅ Paiement validé",
+          `Le paiement pour ${abo.patient.nom_complet} a été reçu. Abonnement valable ${durationMonths} mois.`,
+          "/#billing"
         );
+      }
     }
 
     res.json({ status: "success" });
@@ -73,9 +94,9 @@ router.post("/pay", middleware(["COORDINATEUR"]), async (req, res) => {
   }
 });
 
-/**
- * 💳 3. GÉNÉRER UN LIEN FEDAPAY (Paiement Mobile Money / Carte)
- */
+// ============================================================
+// 💳 3. GÉNÉRER UN LIEN FEDAPAY
+// ============================================================
 router.post("/generate-payment", middleware(["FAMILLE"]), async (req, res) => {
   const { abonnement_id, montant, email_client } = req.body;
   
@@ -90,7 +111,7 @@ router.post("/generate-payment", middleware(["FAMILLE"]), async (req, res) => {
         amount: montant,
         currency: { iso: "XOF" },
         callback_url: "https://stevenckohr-pixel.github.io/sante-plus-frontend/#billing?status=success",
-        metadata: { abonnement_id: abonnement_id }, // 👈 Crucial pour le Webhook
+        metadata: { abonnement_id: abonnement_id },
         customer: { email: email_client || "client@santeplus.bj" },
       },
       {
@@ -106,25 +127,24 @@ router.post("/generate-payment", middleware(["FAMILLE"]), async (req, res) => {
   }
 });
 
-/**
- * ⚡ 4. WEBHOOK UNIVERSEL (FedaPay, Stripe, etc.)
- * Cette route reçoit les confirmations de paiement en arrière-plan.
- */
-
+// ============================================================
+// ⚡ 4. WEBHOOK FEDAPAY (avec gestion des durées)
+// ============================================================
 router.post("/webhook", async (req, res) => {
+  console.log("💰 [WEBHOOK] Signal reçu");
   console.log("Headers:", req.headers);
   console.log("Body:", req.body);
+  
   const event = req.body;
   const signature = req.headers['x-fedapay-signature'];
-  console.log("💰 [WEBHOOK] Signal reçu:", event.type || event.entity?.status);
   
-  // 🔐 Vérification de la signature (sécurité)
+  // Vérification de la signature
   if (!verifyWebhookSignature(signature, JSON.stringify(event))) {
-    console.error("❌ [WEBHOOK] Signature invalide - Attaque potentielle");
+    console.error("❌ [WEBHOOK] Signature invalide");
     return res.status(401).json({ error: "Signature invalide" });
   }
   
-  // 📝 Traitement selon le type d'événement
+  // Traitement du paiement approuvé
   if (event.type === 'transaction.approved' || event.entity?.status === 'approved') {
     const transaction = event.entity;
     const abonnement_id = transaction.metadata?.abonnement_id;
@@ -133,104 +153,118 @@ router.post("/webhook", async (req, res) => {
     const moyen_paiement = transaction.payment_method?.type || 'FEDAPAY';
     
     if (!abonnement_id) {
-      console.error("❌ [WEBHOOK] Pas d'abonnement_id dans les métadonnées");
+      console.error("❌ [WEBHOOK] Pas d'abonnement_id");
       return res.sendStatus(200);
     }
     
     console.log(`✅ [FEDAPAY] Paiement confirmé - Facture: ${abonnement_id}, Montant: ${montant_recu} CFA`);
     
     try {
-      // 1. Récupérer l'abonnement avant mise à jour
-      const { data: oldAbo, error: fetchError } = await supabase
+      // Récupérer l'abonnement
+      const { data: abo, error: errAbo } = await supabase
         .from("abonnements")
-        .select('*, patient:patients(id, nom_complet, famille_user_id)')
+        .select('*, patient:patients(id, nom_complet, famille_user_id, type_pack)')
         .eq("id", abonnement_id)
         .single();
       
-      if (fetchError) throw fetchError;
+      if (errAbo) throw errAbo;
       
       const paymentDate = new Date();
-      const endDate = calculateSubscriptionEndDate(paymentDate);
+      const durationMonths = getDurationFromPack(abo.patient?.type_pack || abo.type_pack);
+      const endDate = calculateSubscriptionEndDate(paymentDate, durationMonths, 5);
       
-      // 2. Mise à jour de la facture avec les dates
-      const { data: abo, error: errAbo } = await supabase
+      // Mise à jour de la facture
+      await supabase
         .from("abonnements")
         .update({
           montant_paye: montant_recu,
           statut: "Payé",
           date_paiement: paymentDate.toISOString(),
           date_fin_abonnement: endDate.toISOString(),
+          duree_mois: durationMonths,
           reference_paiement: reference,
           mode_paiement: moyen_paiement
         })
-        .eq("id", abonnement_id)
-        .select('*, patient:patients(id, nom_complet, famille_user_id)')
-        .single();
-      
-      if (errAbo) throw errAbo;
+        .eq("id", abonnement_id);
       
       if (abo && abo.patient) {
-        // 3. Mise à jour du patient avec les nouvelles dates
+        // Mise à jour du patient
         await supabase
           .from("patients")
           .update({ 
             statut_paiement: "A jour",
             date_dernier_paiement: paymentDate.toISOString(),
-            date_fin_abonnement: endDate.toISOString()
+            date_fin_abonnement: endDate.toISOString(),
+            duree_abonnement_mois: durationMonths
           })
           .eq("id", abo.patient.id);
         
-        // 4. Formater les dates pour l'affichage
-        const endDateFormatted = endDate.toLocaleDateString('fr-FR', {
-          day: 'numeric',
-          month: 'long',
-          year: 'numeric'
-        });
+        const endDateFormatted = endDate.toLocaleDateString('fr-FR');
         
-        // 5. 🔔 Notification Push à la famille avec la date de fin
         if (abo.patient.famille_user_id) {
           await sendPushNotification(
             abo.patient.famille_user_id,
             "💎 Abonnement activé",
-            `Paiement reçu pour ${abo.patient.nom_complet}. Votre abonnement est valable jusqu'au ${endDateFormatted}.`,
+            `Paiement reçu pour ${abo.patient.nom_complet}. Abonnement valable ${durationMonths} mois jusqu'au ${endDateFormatted}.`,
             "/#dashboard"
           );
         }
         
-        // 6. 📝 Log de l'événement pour traçabilité
-        await supabase.from("logs").insert([{
-          user_id: abo.patient.famille_user_id,
-          action: "paiement_auto",
-          details: `Facture ${abonnement_id} payée via ${moyen_paiement}: ${montant_recu} CFA`,
-          reference: reference,
-          date_fin_abonnement: endDate.toISOString()
-        }]);
-        
-        console.log(`✅ [WEBHOOK] Facture ${abonnement_id} traitée - Valable jusqu'au ${endDateFormatted}`);
+        console.log(`✅ [WEBHOOK] Abonnement ${durationMonths} mois - Valable jusqu'au ${endDateFormatted}`);
       }
     } catch (err) {
       console.error("❌ [WEBHOOK ERROR]:", err.message);
     }
   }
   
-  // Toujours répondre 200 pour éviter les tentatives de ré-envoi
   res.sendStatus(200);
 });
 
+// ============================================================
+// 🩺 5. VÉRIFICATION DE L'ÉTAT DU WEBHOOK (Debug)
+// ============================================================
+router.get("/webhook/status", middleware(["COORDINATEUR"]), async (req, res) => {
+  const webhookUrl = `${process.env.API_URL || 'https://sante-plus-backend-ux1n.onrender.com'}/api/billing/webhook`;
+  
+  res.json({
+    status: "active",
+    webhook_url: webhookUrl,
+    secret_configured: !!process.env.FEDAPAY_WEBHOOK_SECRET,
+    environment: process.env.NODE_ENV || 'production',
+    last_webhook_calls: await getLastWebhookCalls()
+  });
+});
+
+// ============================================================
+// 📦 FONCTIONS UTILITAIRES
+// ============================================================
+
 /**
- * 📅 CALCULER LA DATE DE FIN D'ABONNEMENT (1 mois + 5 jours)
+ * 📦 Récupérer la durée en mois selon le pack
  */
-function calculateSubscriptionEndDate(paymentDate) {
-  const endDate = new Date(paymentDate);
-  endDate.setMonth(endDate.getMonth() + 1); // +1 mois
-  endDate.setDate(endDate.getDate() + 5);   // +5 jours
+function getDurationFromPack(packId) {
+  if (!packId) return 1;
+  if (packId.includes('TRIMESTRIEL')) return 3;
+  if (packId.includes('ANNUEL')) return 12;
+  if (packId.includes('SEMESTRIEL')) return 6;
+  return 1;
+}
+
+/**
+ * 📅 CALCULER LA DATE DE FIN (1 mois + 5 jours par défaut)
+ */
+function calculateSubscriptionEndDate(startDate, durationMonths, graceDays = 5) {
+  const endDate = new Date(startDate);
+  endDate.setMonth(endDate.getMonth() + durationMonths);
+  endDate.setDate(endDate.getDate() + graceDays);
   return endDate;
 }
+
 /**
- * 🔐 Vérification de la signature webhook (sécurité renforcée)
+ * 🔐 Vérification de la signature webhook (une seule version)
  */
 function verifyWebhookSignature(signature, payload) {
-  // En développement, on accepte sans signature
+  // Mode développement - accepter tous les webhooks
   if (process.env.NODE_ENV === 'development') {
     console.log("⚠️ [WEBHOOK] Mode développement - signature non vérifiée");
     return true;
@@ -242,7 +276,6 @@ function verifyWebhookSignature(signature, payload) {
   }
   
   try {
-    const crypto = require('crypto');
     const expectedSignature = crypto
       .createHmac('sha256', process.env.FEDAPAY_WEBHOOK_SECRET)
       .update(payload)
@@ -258,23 +291,6 @@ function verifyWebhookSignature(signature, payload) {
   }
 }
 
-
-
-/**
- * 🩺 VÉRIFICATION DE L'ÉTAT DU WEBHOOK (pour debug)
- */
-router.get("/webhook/status", middleware(["COORDINATEUR"]), async (req, res) => {
-  const webhookUrl = `${process.env.API_URL || 'https://sante-plus-backend-ux1n.onrender.com'}/api/billing/webhook`;
-  
-  res.json({
-    status: "active",
-    webhook_url: webhookUrl,
-    secret_configured: !!process.env.FEDAPAY_WEBHOOK_SECRET,
-    environment: process.env.NODE_ENV || 'production',
-    last_webhook_calls: await getLastWebhookCalls()
-  });
-});
-
 /**
  * 📊 Récupère les derniers appels webhook pour debug
  */
@@ -289,46 +305,4 @@ async function getLastWebhookCalls() {
   return data || [];
 }
 
-function verifyWebhookSignature(signature, payload) {
-  // Mode développement - accepter tous les webhooks
-  console.log("⚠️ Webhook reçu (signature ignorée pour le test)");
-  return true;
-}
-
-
-
-/**
- * ✅ MISE À JOUR STATUT APRÈS PAIEMENT (Appelé par webhook)
- */
-async function updatePaymentStatus(abonnementId, montantRecu) {
-    // Mettre à jour la facture
-    const { data: abo } = await supabase
-        .from("abonnements")
-        .update({
-            montant_paye: montantRecu,
-            statut: "Payé",
-            date_paiement: new Date().toISOString()
-        })
-        .eq("id", abonnementId)
-        .select("patient_id")
-        .single();
-    
-    if (abo) {
-        // Débloquer immédiatement le patient
-        await supabase
-            .from("patients")
-            .update({ 
-                statut_paiement: "A jour",
-                date_dernier_paiement: new Date().toISOString()
-            })
-            .eq("id", abo.patient_id);
-        
-        // Mettre à jour le localStorage via l'API (pour les clients connectés)
-        await supabase.from("user_sessions").upsert({
-            user_id: abo.patient.famille_user_id,
-            payment_status: "A jour",
-            last_payment_date: new Date().toISOString()
-        });
-    }
-}
 module.exports = router;
