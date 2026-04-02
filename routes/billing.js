@@ -262,4 +262,40 @@ function verifyWebhookSignature(signature, payload) {
   return true;
 }
 
+
+
+/**
+ * ✅ MISE À JOUR STATUT APRÈS PAIEMENT (Appelé par webhook)
+ */
+async function updatePaymentStatus(abonnementId, montantRecu) {
+    // Mettre à jour la facture
+    const { data: abo } = await supabase
+        .from("abonnements")
+        .update({
+            montant_paye: montantRecu,
+            statut: "Payé",
+            date_paiement: new Date().toISOString()
+        })
+        .eq("id", abonnementId)
+        .select("patient_id")
+        .single();
+    
+    if (abo) {
+        // Débloquer immédiatement le patient
+        await supabase
+            .from("patients")
+            .update({ 
+                statut_paiement: "A jour",
+                date_dernier_paiement: new Date().toISOString()
+            })
+            .eq("id", abo.patient_id);
+        
+        // Mettre à jour le localStorage via l'API (pour les clients connectés)
+        await supabase.from("user_sessions").upsert({
+            user_id: abo.patient.famille_user_id,
+            payment_status: "A jour",
+            last_payment_date: new Date().toISOString()
+        });
+    }
+}
 module.exports = router;
