@@ -209,35 +209,50 @@ router.all("/reset-password", async (req, res) => {
 // 5. INSCRIPTION DUO : FAMILLE + PATIENT (Public)
 // ============================================================
 router.post("/register-family-patient", async (req, res) => {
-    // 1. On récupère les données
-    const { email, password, nom_famille, tel_famille, nom_patient, adresse_patient, formule } = req.body;
+    const { 
+        email, password, nom_famille, prenom_famille, tel_famille, lien_parente, ville_payeur,
+        nom_patient, prenom_patient, age_patient, sexe_patient, adresse_patient, tel_patient,
+        contact_urgence, contact_urgence_tel, pathologies, traitements, allergies, notes_medicales, formule 
+    } = req.body;
     
-    // 2. Nettoyage strict de l'email
     const cleanEmail = (email || "").toLowerCase().trim();
+    const nomCompletFamille = `${prenom_famille || ''} ${nom_famille}`.trim();
+    const nomCompletPatient = `${prenom_patient || ''} ${nom_patient}`.trim();
 
     try {
-        // 3. Appel unique à Supabase Auth
         const { data: auth, error: authErr } = await supabase.auth.signUp({ 
             email: cleanEmail, 
             password: password 
         });
-        
         if (authErr) throw authErr;
 
-        // 4. Insertion dans profiles
+        // Insertion dans profiles
         await supabase.from("profiles").insert([{
             id: auth.user.id, 
-            nom: nom_famille, 
+            nom: nomCompletFamille,
+            prenom: prenom_famille,
             telephone: tel_famille,
-            email: cleanEmail, // On utilise l'email propre
+            email: cleanEmail,
+            adresse: ville_payeur,
             role: 'FAMILLE', 
             statut_validation: 'EN_ATTENTE'
         }]);
 
-        // 5. Insertion dans patients
+        // Insertion dans patients
         await supabase.from("patients").insert([{
-            nom_complet: nom_patient, 
-            adresse: adresse_patient, 
+            nom_complet: nomCompletPatient,
+            prenom: prenom_patient,
+            nom: nom_patient,
+            age: age_patient,
+            sexe: sexe_patient,
+            adresse: adresse_patient,
+            telephone: tel_patient,
+            contact_urgence: contact_urgence,
+            contact_urgence_tel: contact_urgence_tel,
+            pathologies: pathologies ? JSON.parse(pathologies) : [],
+            traitements: traitements,
+            allergies: allergies,
+            notes_medicales: notes_medicales,
             formule: formule,
             famille_user_id: auth.user.id, 
             statut_paiement: 'A jour', 
@@ -259,8 +274,18 @@ router.post("/register-family-patient", async (req, res) => {
 // 6. CRÉATION D'EMPLOYÉ PAR LE COORDINATEUR (Avec envoi d'email)
 // ============================================================
 router.post("/create-member", middleware(["COORDINATEUR"]), async (req, res) => {
-    // Le serveur récupère exactement le mot de passe généré sur l'écran (ex: SPS-5936!)
-    const { email, password, nom, telephone, role } = req.body;
+    // Récupérer tous les champs
+    const { 
+        email, 
+        password, 
+        nom, 
+        prenom, 
+        telephone, 
+        adresse, 
+        competences, 
+        disponibilites, 
+        role 
+    } = req.body;
 
     try {
         console.log(`[RH] Création du collaborateur : ${email}`);
@@ -273,18 +298,23 @@ router.post("/create-member", middleware(["COORDINATEUR"]), async (req, res) => 
         });
         if (authErr) throw authErr;
 
-        // 2. Ajout dans la table Profiles
+        // 2. Ajout dans la table Profiles avec TOUS les champs
         const { error: profErr } = await supabase.from("profiles").insert([{
-            id: userData.user.id, 
-            nom, 
-            telephone, 
-            email, 
-            role, 
+            id: userData.user.id,
+            nom: nom,
+            prenom: prenom || null,
+            telephone: telephone || null,
+            email: email,
+            adresse: adresse || null,
+            competences: competences || [],
+            disponibilites: disponibilites || null,
+            role: role,
             statut_validation: 'ACTIF'
         }]);
         if (profErr) throw profErr;
 
-        // 3. ENVOI DE L'EMAIL À L'AIDANT AVEC SES ACCÈS
+        // 3. ENVOI DE L'EMAIL
+        const nomComplet = `${prenom || ''} ${nom}`.trim();
         const emailHtml = `
             <div style="background-color: #F8FAFC; padding: 40px; font-family: sans-serif;">
                 <div style="max-width: 600px; margin: auto; background: white; border-radius: 24px; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.05);">
@@ -293,7 +323,7 @@ router.post("/create-member", middleware(["COORDINATEUR"]), async (req, res) => 
                     </div>
                     <div style="padding: 40px;">
                         <h2 style="color: #0F172A; font-size: 22px;">Bienvenue dans l'équipe !</h2>
-                        <p style="color: #64748B;">Bonjour <b>${nom}</b>, votre compte ${role} a été créé avec succès.</p>
+                        <p style="color: #64748B;">Bonjour <b>${nomComplet}</b>, votre compte ${role} a été créé avec succès.</p>
                         
                         <div style="background: #F1F5F9; border-left: 4px solid #10B981; padding: 20px; border-radius: 12px; margin: 25px 0;">
                             <p style="margin: 0; color: #64748B; font-size: 11px; text-transform: uppercase; font-weight: bold;">Vos identifiants de connexion</p>
@@ -301,13 +331,15 @@ router.post("/create-member", middleware(["COORDINATEUR"]), async (req, res) => 
                             <p style="margin: 0; font-size: 15px;">Mot de passe : <b style="color: #10B981;">${password}</b></p>
                         </div>
                         
+                        ${adresse ? `<p style="font-size: 12px; color: #64748B;">📍 Adresse: ${adresse}</p>` : ''}
+                        ${competences?.length ? `<p style="font-size: 12px; color: #64748B;">🩺 Compétences: ${competences.join(', ')}</p>` : ''}
+                        
                         <a href="https://stevenckohr-pixel.github.io/sante-plus-frontend/" style="display: block; background: #0F172A; color: white; padding: 15px; text-align: center; text-decoration: none; border-radius: 12px; font-weight: bold;">Accéder à mon espace</a>
                     </div>
                 </div>
             </div>
         `;
 
-        // Envoi via Brevo (Géré de manière sécurisée pour ne pas faire crasher le serveur)
         try {
             await sendEmailAPI(email, "Vos accès collaborateurs - Santé Plus", emailHtml);
             console.log("✅ Mail RH envoyé avec succès !");
