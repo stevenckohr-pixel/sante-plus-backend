@@ -217,9 +217,22 @@ router.post("/update-photo", middleware(["FAMILLE", "COORDINATEUR"]), upload.sin
   }
 });
 
-
+/**
+ * ✏️ Mettre à jour toutes les infos du patient (complet)
+ */
 router.put("/update-full-info", middleware(["FAMILLE", "COORDINATEUR"]), async (req, res) => {
-    const { prenom, nom, age, sexe, telephone, adresse, contact_urgence, traitements, allergies } = req.body;
+    const { 
+        prenom, 
+        nom, 
+        age, 
+        sexe, 
+        telephone, 
+        adresse, 
+        contact_urgence, 
+        traitements, 
+        allergies,
+        notes_medicales 
+    } = req.body;
     
     let patientId = req.body.patient_id;
     
@@ -248,11 +261,14 @@ router.put("/update-full-info", middleware(["FAMILLE", "COORDINATEUR"]), async (
             adresse, 
             contact_urgence, 
             traitements, 
-            allergies 
+            allergies,
+            notes_medicales
         })
         .eq("id", patientId);
     
     if (error) return res.status(500).json({ error: error.message });
     res.json({ status: "success" });
 });
+
+
 module.exports = router;
