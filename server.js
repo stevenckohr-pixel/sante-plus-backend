@@ -34,6 +34,8 @@ const dashboardRoutes = require("./routes/dashboard");
 const aidantRoutes = require("./routes/aidants");
 const adminRoutes = require("./routes/admin");
 const startCronJobs = require("./cron");
+const assignmentRoutes = require("./routes/assignments");
+
 
 // --- BRANCHEMENT DES ROUTES ---
 
@@ -46,6 +48,7 @@ app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/aidants", aidantRoutes);
 app.use("/api/patients", patientRoutes);
+app.use("/api/assignments", assignmentRoutes);
 
 // 3. Opérations Terrain (Nécessitent la gestion de fichiers/photos)
 app.use("/api/visites", upload.any(), visitesRoutes);
