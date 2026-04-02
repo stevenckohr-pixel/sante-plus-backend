@@ -8,14 +8,13 @@ const { sendEmailAPI, sendPushNotification } = require("../utils");
  * ▶️ 1. DÉMARRER UNE VISITE
  */
 router.post("/start", middleware(["AIDANT"]), async (req, res) => {
-  const { patient_id, gps_start } = req.body;
+    const { patient_id, gps_start } = req.body;
 
-  try {
-
-
+    try {
+        // 🛡️ VÉRIFICATION : L'aidant est-il bien assigné à ce patient ?
         const { data: planning, error: planningErr } = await supabase
             .from("planning")
-            .select("id")
+            .select("id, date_prevue")
             .eq("patient_id", patient_id)
             .eq("aidant_id", req.user.userId)
             .maybeSingle();
@@ -25,37 +24,65 @@ router.post("/start", middleware(["AIDANT"]), async (req, res) => {
                 error: "Vous n'êtes pas autorisé à intervenir sur ce dossier" 
             });
         }
-    
-    const { data: visite, error } = await supabase
-      .from("visites")
-      .insert([{
-        patient_id,
-        aidant_id: req.user.userId,
-        heure_debut: new Date(),
-        gps_start: gps_start,
-        statut: "En cours",  
-      }])
-      .select(`*, patient:patients(nom_complet, famille_user_id)`)  
-      .single();
 
-    if (error) throw error;
+        // Vérifier si une visite est déjà en cours pour ce patient
+        const { data: existingVisit, error: existingErr } = await supabase
+            .from("visites")
+            .select("id, statut")
+            .eq("patient_id", patient_id)
+            .eq("aidant_id", req.user.userId)
+            .in("statut", ["En cours", "En attente"])
+            .maybeSingle();
 
-    if (visite.patient && visite.patient.famille_user_id) {
-        sendPushNotification(
-            visite.patient.famille_user_id,
-            "🔔 SPS : Début d'intervention",
-            `L'intervenant vient d'arriver au domicile de ${visite.patient.nom_complet}.`,
-            "/#feed"
-        );
+        if (existingErr) throw existingErr;
+
+        if (existingVisit) {
+            return res.status(400).json({ 
+                error: "Une visite est déjà en cours ou en attente de validation pour ce patient" 
+            });
+        }
+
+        // Démarrer la visite
+        const { data: visite, error } = await supabase
+            .from("visites")
+            .insert([{
+                patient_id,
+                aidant_id: req.user.userId,
+                planning_id: planning.id, // Lier au planning
+                heure_debut: new Date(),
+                gps_start: gps_start,
+                statut: "En cours",
+            }])
+            .select(`*, patient:patients(nom_complet, famille_user_id)`)
+            .single();
+
+        if (error) throw error;
+
+        // Mettre à jour le planning si besoin
+        if (planning.id) {
+            await supabase
+                .from("planning")
+                .update({ statut: "En cours" })
+                .eq("id", planning.id);
+        }
+
+        // Notification à la famille
+        if (visite.patient && visite.patient.famille_user_id) {
+            sendPushNotification(
+                visite.patient.famille_user_id,
+                "🔔 SPS : Début d'intervention",
+                `L'intervenant vient d'arriver au domicile de ${visite.patient.nom_complet}.`,
+                "/#feed"
+            );
+        }
+
+        res.json({ status: "success", visite_id: visite.id });
+        
+    } catch (err) {
+        console.error("❌ Crash Route Start:", err.message);
+        res.status(500).json({ error: err.message });
     }
-
-    res.json({ status: "success", visite_id: visite.id });
-  } catch (err) {
-    console.error("Crash Route Start:", err.message);
-    res.status(500).json({ error: err.message });
-  }
 });
-
 /**
  * ⏹️ 2. TERMINER UNE VISITE (AVEC AUTO-FEED)
  */
