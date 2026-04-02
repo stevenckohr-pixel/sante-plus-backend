@@ -241,6 +241,81 @@ router.get("/live-tracking", middleware(['COORDINATEUR']), async (req, res) => {
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+
+
+
+/**
+ * 🏠 POSITION ACTIVE POUR LA FAMILLE
+ * Récupère la dernière position connue d'une visite en cours pour un patient donné
+ */
+router.get("/active/:patientId", middleware(["FAMILLE", "COORDINATEUR"]), async (req, res) => {
+    const { patientId } = req.params;
+
+    // 🔒 Vérification que la famille a bien accès à ce patient
+    if (req.user.role === "FAMILLE") {
+        const { data: patient, error } = await supabase
+            .from("patients")
+            .select("id")
+            .eq("id", patientId)
+            .eq("famille_user_id", req.user.userId)
+            .single();
+
+        if (error || !patient) {
+            return res.status(403).json({ error: "Accès non autorisé à ce dossier" });
+        }
+    }
+
+    try {
+        // 1. Trouver la visite en cours pour ce patient
+        const { data: visite, error: visiteError } = await supabase
+            .from("visites")
+            .select("id, aidant_id, alerte_geofence")
+            .eq("patient_id", patientId)
+            .eq("statut", "En cours")
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+        if (visiteError || !visite) {
+            return res.json({}); // Pas de visite en cours
+        }
+
+        // 2. Récupérer la dernière position connue
+        const { data: lastPos, error: posError } = await supabase
+            .from("positions_live")
+            .select("lat, lng, created_at")
+            .eq("visite_id", visite.id)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+        if (posError || !lastPos) {
+            return res.json({}); 
+        }
+
+        // 3. Récupérer le nom de l'aidant
+        const { data: aidant, error: aidantError } = await supabase
+            .from("profiles")
+            .select("nom")
+            .eq("id", visite.aidant_id)
+            .single();
+
+        res.json({
+            lat: lastPos.lat,
+            lng: lastPos.lng,
+            aidant_nom: aidant?.nom || "Intervenant",
+            is_inside: !visite.alerte_geofence,
+            last_update: lastPos.created_at
+        });
+
+    } catch (err) {
+        console.error("❌ Erreur route /active/:patientId:", err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+
+
 router.get("/trajectory/:visite_id", middleware(['COORDINATEUR']), async (req, res) => {
     try {
         const { data, error } = await supabase
