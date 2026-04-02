@@ -153,6 +153,43 @@ router.put("/:id/update-pack", middleware(["FAMILLE", "COORDINATEUR"]), async (r
 });
 
 
-
+/**
+ * 📸 Mettre à jour la photo du patient
+ */
+router.post("/update-photo", middleware(["FAMILLE", "COORDINATEUR"]), upload.single('photo'), async (req, res) => {
+    try {
+        const file = req.file;
+        if (!file) return res.status(400).json({ error: "Aucune photo" });
+        
+        // Récupérer le patient de la famille
+        let patientId = req.body.patient_id;
+        
+        if (req.user.role === "FAMILLE" && !patientId) {
+            const { data: patient } = await supabase
+                .from("patients")
+                .select("id")
+                .eq("famille_user_id", req.user.userId)
+                .single();
+            patientId = patient?.id;
+        }
+        
+        if (!patientId) return res.status(404).json({ error: "Patient non trouvé" });
+        
+        const fileName = `patients/${patientId}_${Date.now()}.jpg`;
+        await supabase.storage.from("photos").upload(fileName, file.buffer, {
+            contentType: 'image/jpeg',
+            upsert: true
+        });
+        
+        const { data: urlData } = supabase.storage.from("photos").getPublicUrl(fileName);
+        const photo_url = urlData.publicUrl;
+        
+        await supabase.from("patients").update({ photo_url }).eq("id", patientId);
+        
+        res.json({ photo_url });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 
 module.exports = router;
