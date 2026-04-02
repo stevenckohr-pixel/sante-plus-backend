@@ -217,4 +217,42 @@ router.post("/update-photo", middleware(["FAMILLE", "COORDINATEUR"]), upload.sin
   }
 });
 
+
+router.put("/update-full-info", middleware(["FAMILLE", "COORDINATEUR"]), async (req, res) => {
+    const { prenom, nom, age, sexe, telephone, adresse, contact_urgence, traitements, allergies } = req.body;
+    
+    let patientId = req.body.patient_id;
+    
+    if (req.user.role === "FAMILLE" && !patientId) {
+        const { data: patient } = await supabase
+            .from("patients")
+            .select("id")
+            .eq("famille_user_id", req.user.userId)
+            .single();
+        patientId = patient?.id;
+    }
+    
+    if (!patientId) return res.status(404).json({ error: "Patient non trouvé" });
+    
+    const nomComplet = `${prenom || ''} ${nom || ''}`.trim();
+    
+    const { error } = await supabase
+        .from("patients")
+        .update({ 
+            prenom, 
+            nom, 
+            nom_complet: nomComplet,
+            age, 
+            sexe, 
+            telephone, 
+            adresse, 
+            contact_urgence, 
+            traitements, 
+            allergies 
+        })
+        .eq("id", patientId);
+    
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ status: "success" });
+});
 module.exports = router;
