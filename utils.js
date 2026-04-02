@@ -95,4 +95,39 @@ async function sendEmailAPI(toEmail, subject, htmlContent) {
   }
 }
 
+
+/**
+ * 📅 CALCULER LA DATE DE FIN D'ABONNEMENT (selon la durée)
+ * @param {Date} startDate - Date de début
+ * @param {number} durationMonths - Durée en mois (1, 3, 6, 12)
+ * @param {number} graceDays - Jours de grâce (5 par défaut)
+ * @returns {Date} Date de fin
+ */
+function calculateSubscriptionEndDate(startDate, durationMonths, graceDays = 5) {
+    const endDate = new Date(startDate);
+    endDate.setMonth(endDate.getMonth() + durationMonths);
+    endDate.setDate(endDate.getDate() + graceDays);
+    return endDate;
+}
+
+/**
+ * 📊 CALCULER LES JOURS RESTANTS
+ */
+function getDaysRemaining(endDate) {
+    if (!endDate) return 0;
+    const today = new Date();
+    const diffTime = new Date(endDate) - today;
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays > 0 ? diffDays : 0;
+}
+
+/**
+ * 🔒 VÉRIFIER SI L'ABONNEMENT EST VALIDE
+ */
+function isSubscriptionValid(endDate) {
+    if (!endDate) return false;
+    const today = new Date();
+    return today <= new Date(endDate);
+}
+
 module.exports = { sendEmailAPI, sendPushNotification };
