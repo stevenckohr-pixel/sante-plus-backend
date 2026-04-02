@@ -260,4 +260,114 @@ router.get("/unassigned-patients", middleware(["COORDINATEUR"]), async (req, res
     }
 });
 
+
+
+
+
+/**
+ * 📊 6. TABLEAU DE BORD COMPLET POUR LE COORDINATEUR
+ * Retourne : tous les aidants + tous les patients + toutes les assignations
+ */
+router.get("/full-dashboard", middleware(["COORDINATEUR"]), async (req, res) => {
+    try {
+        // 1. Récupérer tous les aidants actifs
+        const { data: aidants, error: aidantsErr } = await supabase
+            .from("profiles")
+            .select("id, nom, email, telephone, statut_validation")
+            .eq("role", "AIDANT")
+            .order("nom");
+
+        if (aidantsErr) throw aidantsErr;
+
+        // 2. Récupérer tous les patients actifs
+        const { data: patients, error: patientsErr } = await supabase
+            .from("patients")
+            .select(`
+                id, 
+                nom_complet, 
+                adresse, 
+                formule, 
+                statut_validation,
+                famille:famille_user_id (nom, email)
+            `)
+            .eq("statut_validation", "ACTIF")
+            .order("nom_complet");
+
+        if (patientsErr) throw patientsErr;
+
+        // 3. Récupérer toutes les assignations actives
+        const { data: assignments, error: assignmentsErr } = await supabase
+            .from("planning")
+            .select(`
+                id,
+                patient_id,
+                aidant_id,
+                date_prevue,
+                statut,
+                est_actif,
+                notes_coordinateur
+            `)
+            .eq("est_actif", true);
+
+        if (assignmentsErr) throw assignmentsErr;
+
+        // 4. Construire un mapping patient_id -> aidant_id
+        const patientToAidant = {};
+        const aidantToPatients = {};
+
+        assignments.forEach(assign => {
+            if (assign.est_actif) {
+                patientToAidant[assign.patient_id] = assign.aidant_id;
+                
+                if (!aidantToPatients[assign.aidant_id]) {
+                    aidantToPatients[assign.aidant_id] = [];
+                }
+                aidantToPatients[assign.aidant_id].push({
+                    patient_id: assign.patient_id,
+                    assignment_id: assign.id,
+                    date_prevue: assign.date_prevue,
+                    statut: assign.statut,
+                    notes: assign.notes_coordinateur
+                });
+            }
+        });
+
+        // 5. Enrichir les aidants avec leurs patients assignés
+        const aidantsEnriched = aidants.map(aidant => ({
+            ...aidant,
+            patients_assignes: aidantToPatients[aidant.id] || [],
+            nb_patients: (aidantToPatients[aidant.id] || []).length
+        }));
+
+        // 6. Enrichir les patients avec leur aidant assigné
+        const patientsEnriched = patients.map(patient => {
+            const aidantId = patientToAidant[patient.id];
+            const aidant = aidants.find(a => a.id === aidantId);
+            return {
+                ...patient,
+                aidant_assigne: aidant ? {
+                    id: aidant.id,
+                    nom: aidant.nom,
+                    email: aidant.email,
+                    telephone: aidant.telephone
+                } : null
+            };
+        });
+
+        res.json({
+            aidants: aidantsEnriched,
+            patients: patientsEnriched,
+            total_aidants: aidants.length,
+            total_patients: patients.length,
+            total_assignments: assignments.length,
+            patients_non_assignes: patientsEnriched.filter(p => !p.aidant_assigne).length
+        });
+
+    } catch (err) {
+        console.error("❌ Erreur dashboard RH:", err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+
 module.exports = router;
