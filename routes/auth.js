@@ -335,4 +335,77 @@ router.get("/profiles", middleware(["COORDINATEUR"]), async (req, res) => {
   res.json(data);
 });
 
+
+
+/**
+ * 📸 Mettre à jour la photo de profil
+ */
+router.post("/update-photo", middleware(), upload.single('photo'), async (req, res) => {
+    try {
+        const file = req.file;
+        if (!file) return res.status(400).json({ error: "Aucune photo" });
+        
+        const fileName = `profiles/${req.user.userId}_${Date.now()}.jpg`;
+        await supabase.storage.from("photos").upload(fileName, file.buffer, {
+            contentType: 'image/jpeg',
+            upsert: true
+        });
+        
+        const { data: urlData } = supabase.storage.from("photos").getPublicUrl(fileName);
+        const photo_url = urlData.publicUrl;
+        
+        await supabase.from("profiles").update({ photo_url }).eq("id", req.user.userId);
+        
+        res.json({ photo_url });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/**
+ * 📋 Récupérer le profil utilisateur
+ */
+router.get("/profile/:userId", middleware(), async (req, res) => {
+    const { userId } = req.params;
+    
+    const { data, error } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", userId)
+        .single();
+    
+    if (error) return res.status(404).json({ error: "Profil non trouvé" });
+    res.json(data);
+});
+
+/**
+ * ✏️ Mettre à jour le profil
+ */
+router.put("/update-profile", middleware(), async (req, res) => {
+    const { nom, email, telephone } = req.body;
+    
+    const { error } = await supabase
+        .from("profiles")
+        .update({ nom, email, telephone })
+        .eq("id", req.user.userId);
+    
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ status: "success" });
+});
+
+/**
+ * 👨‍⚕️ Mettre à jour les infos aidant
+ */
+router.put("/update-aidant-info", middleware(["AIDANT"]), async (req, res) => {
+    const { competences, disponibilites } = req.body;
+    
+    const { error } = await supabase
+        .from("profiles")
+        .update({ competences, disponibilites })
+        .eq("id", req.user.userId);
+    
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ status: "success" });
+});
+
 module.exports = router;
