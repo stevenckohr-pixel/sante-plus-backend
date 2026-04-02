@@ -93,60 +93,122 @@ router.post(
  * Autorisé pour les Aidants (terrain) et les Coordinateurs.
  */
 router.post(
-  "/send",
-  middleware(["COORDINATEUR", "AIDANT", "FAMILLE"]),
-  async (req, res) => {
-    const { patient_id, content, is_photo } = req.body;
+    "/send",
+    middleware(["COORDINATEUR", "AIDANT", "FAMILLE"]),
+    async (req, res) => {
+        const { patient_id, content, is_photo, type_media, titre_media } = req.body;
 
-    if (!content) return res.status(400).json({ error: "Le contenu est vide" });
+        if (!content) {
+            return res.status(400).json({ error: "Le contenu est vide" });
+        }
 
-    // ============================================
-    // 🛡️ SÉCURITÉ : Vérifier que la famille n'écrit que sur SON dossier
-    // ============================================
-    if (req.user.role === "FAMILLE") {
-      const { data: patient } = await supabase
-        .from("patients")
-        .select("id")
-        .eq("id", patient_id)
-        .eq("famille_user_id", req.user.userId)
-        .single();
-      
-      if (!patient) {
-        return res.status(403).json({ error: "Vous ne pouvez pas écrire sur ce dossier" });
-      }
-    }
+        // ============================================
+        // 🛡️ SÉCURITÉ : Vérifications selon le rôle
+        // ============================================
 
-       if (req.user.role === "AIDANT") {
-            const { data: planning } = await supabase
-                .from("planning")
+        // Pour la FAMILLE : le patient doit lui appartenir
+        if (req.user.role === "FAMILLE") {
+            const { data: patient, error } = await supabase
+                .from("patients")
                 .select("id")
-                .eq("patient_id", patient_id)
-                .eq("aidant_id", req.user.userId)
+                .eq("id", patient_id)
+                .eq("famille_user_id", req.user.userId)
                 .single();
-            
-            if (!planning) {
+
+            if (error || !patient) {
                 return res.status(403).json({ 
-                    error: "Vous ne pouvez pas envoyer de message à ce patient" 
+                    error: "Vous ne pouvez pas écrire sur ce dossier" 
                 });
             }
         }
 
-    try {
-      const { error } = await supabase.from("messages").insert([
-        {
-          patient_id,
-          sender_id: req.user.userId,
-          content,
-          is_photo: is_photo || false,
-          reactions: {},
-        },
-      ]);
+        // Pour l'AIDANT : il doit être assigné à ce patient dans le planning
+        if (req.user.role === "AIDANT") {
+            const { data: planning, error } = await supabase
+                .from("planning")
+                .select("id")
+                .eq("patient_id", patient_id)
+                .eq("aidant_id", req.user.userId)
+                .maybeSingle();
 
-      if (error) throw error;
-      res.json({ status: "success" });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
+            if (error || !planning) {
+                return res.status(403).json({ 
+                    error: "Vous n'êtes pas autorisé à envoyer un message à ce patient" 
+                });
+            }
+
+            // Vérifier si l'aidant a une visite en cours pour ce patient
+            const { data: activeVisit, error: visitErr } = await supabase
+                .from("visites")
+                .select("id")
+                .eq("patient_id", patient_id)
+                .eq("aidant_id", req.user.userId)
+                .eq("statut", "En cours")
+                .maybeSingle();
+
+            // Pas d'erreur si pas de visite, juste on ne bloque pas
+        }
+
+        // Pour le COORDINATEUR : pas de restriction (peut tout faire)
+
+        // ============================================
+        // INSERTION DU MESSAGE
+        // ============================================
+        try {
+            const messageData = {
+                patient_id,
+                sender_id: req.user.userId,
+                content,
+                is_photo: is_photo || false,
+                reactions: {},
+            };
+
+            // Ajouter les champs optionnels si présents
+            if (type_media) messageData.type_media = type_media;
+            if (titre_media) messageData.titre_media = titre_media;
+
+            const { error } = await supabase.from("messages").insert([messageData]);
+
+            if (error) throw error;
+
+            // ============================================
+            // NOTIFICATION PUSH aux membres de la famille
+            // ============================================
+            const { data: patient } = await supabase
+                .from("patients")
+                .select("famille_user_id, nom_complet")
+                .eq("id", patient_id)
+                .single();
+
+            if (patient && patient.famille_user_id && req.user.role !== "FAMILLE") {
+                // Ne pas notifier la famille si c'est elle qui envoie le message
+                let notificationTitle = "📝 Nouveau message";
+                let notificationBody = `Nouveau message dans le journal de ${patient.nom_complet}`;
+
+                if (is_photo) {
+                    notificationTitle = "📸 Nouvelle photo";
+                    notificationBody = `Une nouvelle photo a été ajoutée au journal de ${patient.nom_complet}`;
+                }
+
+                if (type_media === 'DOCUMENT') {
+                    notificationTitle = "📄 Nouveau document";
+                    notificationBody = `Un nouveau document a été ajouté pour ${patient.nom_complet}`;
+                }
+
+                sendPushNotification(
+                    patient.famille_user_id,
+                    notificationTitle,
+                    notificationBody,
+                    "/#feed"
+                );
+            }
+
+            res.json({ status: "success" });
+
+        } catch (err) {
+            console.error("❌ Erreur envoi message:", err.message);
+            res.status(500).json({ error: err.message });
+        }
     }
-  },
 );
 module.exports = router;
