@@ -151,4 +151,8 @@ router.put("/:id/update-pack", middleware(["FAMILLE", "COORDINATEUR"]), async (r
     if (error) return res.status(500).json({ error: error.message });
     res.json({ status: "success" });
 });
+
+
+
+
 module.exports = router;
