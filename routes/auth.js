@@ -4,7 +4,8 @@ const jwt = require("jsonwebtoken");
 const supabase = require("../supabaseClient");
 const middleware = require("../middleware");
 const { sendEmailAPI } = require("../utils");
-
+const multer = require("multer");
+const upload = multer({ storage: multer.memoryStorage() });
 const JWT_SECRET = process.env.JWT_SECRET;
 
 // ============================================================
@@ -76,8 +77,14 @@ router.post("/login", async (req, res) => {
 
     // E. Connexion directe pour les autres rôles
     const token = jwt.sign({ userId: authData.user.id, role: userRole }, JWT_SECRET, { expiresIn: "24h" });
-    return res.json({ status: "success", token, role: userRole, nom: profile.nom });
-
+    return res.json({ 
+        status: "success", 
+        token, 
+        role: userRole, 
+        nom: profile.nom,
+        photo_url: profile.photo_url || null,  
+        user_id: authData.user.id               
+    });
   } catch (err) {
     console.error("Login Crash:", err.message);
     res.status(500).json({ error: "Erreur technique serveur" });
@@ -119,8 +126,14 @@ router.post("/verify-2fa", async (req, res) => {
 
     const token = jwt.sign({ userId: profile.id, role: profile.role }, JWT_SECRET, { expiresIn: "24h" });
 
-    return res.json({ status: "success", token, role: profile.role, nom: profile.nom });
-
+      return res.json({ 
+          status: "success", 
+          token, 
+          role: profile.role, 
+          nom: profile.nom,
+          photo_url: profile.photo_url || null,  
+          user_id: profile.id                     
+      });
   } catch (err) {
     res.status(500).json({ status: "error", message: "Erreur technique serveur." });
   }
