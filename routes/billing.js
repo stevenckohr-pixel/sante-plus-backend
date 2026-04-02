@@ -4,7 +4,7 @@ const express = require("express");
 const router = express.Router();
 const supabase = require("../supabaseClient");
 const middleware = require("../middleware");
-const { sendPushNotification } = require("../utils"); 
+const { sendPushNotification, getDurationFromPack, calculateSubscriptionEndDate } = require("../utils");
 
 // ============================================================
 // 📊 1. LISTER LES ABONNEMENTS
@@ -238,27 +238,6 @@ router.get("/webhook/status", middleware(["COORDINATEUR"]), async (req, res) => 
 // ============================================================
 // 📦 FONCTIONS UTILITAIRES
 // ============================================================
-
-/**
- * 📦 Récupérer la durée en mois selon le pack
- */
-function getDurationFromPack(packId) {
-  if (!packId) return 1;
-  if (packId.includes('TRIMESTRIEL')) return 3;
-  if (packId.includes('ANNUEL')) return 12;
-  if (packId.includes('SEMESTRIEL')) return 6;
-  return 1;
-}
-
-/**
- * 📅 CALCULER LA DATE DE FIN (1 mois + 5 jours par défaut)
- */
-function calculateSubscriptionEndDate(startDate, durationMonths, graceDays = 5) {
-  const endDate = new Date(startDate);
-  endDate.setMonth(endDate.getMonth() + durationMonths);
-  endDate.setDate(endDate.getDate() + graceDays);
-  return endDate;
-}
 
 /**
  * 🔐 Vérification de la signature webhook (une seule version)
