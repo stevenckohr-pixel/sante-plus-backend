@@ -7,11 +7,11 @@ const multer = require("multer");
 const upload = multer({ storage: multer.memoryStorage() });
 
 
-onst upload = multer({ 
+const upload = multer({ 
     storage: multer.memoryStorage(),
     limits: {
-        fileSize: 5 * 1024 * 1024, // 5MB max
-        fieldSize: 10 * 1024 * 1024 // 10MB pour les autres champs
+        fileSize: 10 * 1024 * 1024, // 10MB
+        fieldSize: 10 * 1024 * 1024  // 10MB
     }
 });
 
@@ -132,8 +132,11 @@ router.post("/confirm", middleware(["COORDINATEUR"]), async (req, res) => {
  * 📦 3. FINALISER LA LIVRAISON (Aidant)
  */
 router.post("/deliver", middleware(["AIDANT"]), upload.single('photo_livraison'), async (req, res) => {
+    console.log("🔵 [DELIVER] Début de la requête");
+    console.log("🔵 Body:", req.body);
+    console.log("🔵 Fichier:", req.file ? `Reçu (${req.file.size} bytes)` : "Aucun fichier");
     const { commande_id } = req.body;
-    const photoFile = req.file;  // ← Important : req.file, pas req.files
+    const photoFile = req.file;  
 
     console.log("📦 Requête reçue:", { commande_id, hasFile: !!photoFile });
 
