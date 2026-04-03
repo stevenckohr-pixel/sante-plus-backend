@@ -40,6 +40,9 @@ router.get("/", middleware(["COORDINATEUR", "FAMILLE", "AIDANT"]), async (req, r
 // ============================================================
 // ➕ 2. AJOUTER UN PATIENT
 // ============================================================
+// ============================================================
+// ➕ 2. AJOUTER UN PATIENT
+// ============================================================
 router.post("/add", middleware(["COORDINATEUR"]), async (req, res) => {
     const { nom_complet, prenom, nom, age, sexe, telephone, adresse, contact_urgence, formule } = req.body;
 
@@ -55,13 +58,13 @@ router.post("/add", middleware(["COORDINATEUR"]), async (req, res) => {
             contact_urgence,
             formule,
             coordinateur_id: req.user.userId,
+            statut: 'ACTIF'  
         },
     ]);
 
     if (error) return res.status(500).json({ error: error.message });
     res.json({ status: "success" });
 });
-
 // ============================================================
 // 🔗 3. LIER UNE FAMILLE À UN PATIENT
 // ============================================================
