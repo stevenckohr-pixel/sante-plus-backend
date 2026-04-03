@@ -5,6 +5,12 @@ const app = express();
 const multer = require("multer");
 const upload = multer({ storage: multer.memoryStorage() });
 
+
+
+// Augmenter la limite de taille pour les uploads
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ limit: '10mb', extended: true }));
+
 // --- CONFIGURATION DE SÉCURITÉ (CORS) ---
 app.use(cors({
     origin: [
