@@ -8,15 +8,18 @@ const { createNotification } = require("./notifications");
 // ============================================================
 // ▶️ 1. DÉMARRER UNE VISITE
 // ============================================================
+// visites.js backend - Remplacer la route POST /start
 router.post("/start", middleware(["AIDANT"]), async (req, res) => {
     const { patient_id, gps_start } = req.body;
 
     try {
+        // ✅ Vérifier que l'aidant est assigné à ce patient
         const { data: planning, error: planningErr } = await supabase
             .from("planning")
             .select("id, date_prevue")
             .eq("patient_id", patient_id)
             .eq("aidant_id", req.user.userId)
+            .eq("est_actif", true)
             .maybeSingle();
 
         if (planningErr || !planning) {
@@ -25,6 +28,7 @@ router.post("/start", middleware(["AIDANT"]), async (req, res) => {
             });
         }
 
+        // ✅ Vérifier qu'il n'y a pas déjà une visite en cours
         const { data: existingVisit, error: existingErr } = await supabase
             .from("visites")
             .select("id, statut")
@@ -41,6 +45,7 @@ router.post("/start", middleware(["AIDANT"]), async (req, res) => {
             });
         }
 
+        // ✅ Créer la visite
         const { data: visite, error } = await supabase
             .from("visites")
             .insert([{
@@ -56,6 +61,7 @@ router.post("/start", middleware(["AIDANT"]), async (req, res) => {
 
         if (error) throw error;
 
+        // ✅ Mettre à jour le planning
         if (planning.id) {
             await supabase
                 .from("planning")
@@ -63,6 +69,7 @@ router.post("/start", middleware(["AIDANT"]), async (req, res) => {
                 .eq("id", planning.id);
         }
 
+        // ✅ Notifier la famille
         if (visite.patient && visite.patient.famille_user_id) {
             await sendPushNotification(
                 visite.patient.famille_user_id,
@@ -71,13 +78,15 @@ router.post("/start", middleware(["AIDANT"]), async (req, res) => {
                 "/#feed"
             );
 
-            await createNotification(
-                visite.patient.famille_user_id,
-                "🔔 Début d'intervention",
-                `${visite.aidant?.nom || "L'aidant"} est arrivé au domicile de ${visite.patient.nom_complet}.`,
-                "visit",
-                "/#feed"
-            );
+            if (createNotification) {
+                await createNotification(
+                    visite.patient.famille_user_id,
+                    "🔔 Début d'intervention",
+                    `${visite.aidant?.nom || "L'aidant"} est arrivé au domicile de ${visite.patient.nom_complet}.`,
+                    "visit",
+                    "/#feed"
+                );
+            }
         }
 
         res.json({ status: "success", visite_id: visite.id });
@@ -87,7 +96,6 @@ router.post("/start", middleware(["AIDANT"]), async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
-
 // ============================================================
 // ⏹️ 2. TERMINER UNE VISITE (AVEC AUTO-FEED)
 // ============================================================
