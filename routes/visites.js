@@ -236,30 +236,42 @@ router.get("/", middleware(["COORDINATEUR", "AIDANT", "FAMILLE"]), async (req, r
     try {
         let query = supabase.from("visites").select(`
             *,
-            patient:patient_id (nom_complet, adresse),
-            aidant:aidant_id (nom)
+            patient:patient_id (id, nom_complet, adresse),
+            aidant:aidant_id (id, nom, photo_url)
         `);
 
         if (req.user.role === "AIDANT") {
+            // L'aidant voit toutes ses visites
             query = query.eq("aidant_id", req.user.userId);
-        } else if (req.user.role === "FAMILLE") {
-            const { data: p } = await supabase.from("patients")
+        } 
+        else if (req.user.role === "FAMILLE") {
+            // La famille voit les visites de SON patient
+            const { data: patients } = await supabase
+                .from("patients")
                 .select("id")
-                .eq("famille_user_id", req.user.userId)
-                .maybeSingle();
+                .eq("famille_user_id", req.user.userId);
             
-            if (!p) return res.json([]);
-            query = query.eq("patient_id", p.id).eq("statut", "Validé"); 
+            if (!patients || patients.length === 0) {
+                return res.json([]);
+            }
+            
+            const patientIds = patients.map(p => p.id);
+            
+            // ✅ La famille voit TOUTES les visites (En attente + Validé)
+            query = query
+                .in("patient_id", patientIds)
+                .in("statut", ["En attente", "Validé"]);  // ← Les deux statuts
         }
+        // COORDINATEUR voit tout
 
         const { data, error } = await query.order("heure_debut", { ascending: false });
         if (error) throw error;
         res.json(data || []);
     } catch (err) {
+        console.error("❌ Erreur lecture visites:", err.message);
         res.status(500).json({ error: err.message });
     }
 });
-
 // ============================================================
 // 🛰️ TRACKING GPS
 // ============================================================
