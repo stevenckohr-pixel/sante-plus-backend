@@ -2,7 +2,8 @@ const express = require("express");
 const router = express.Router();
 const supabase = require("../supabaseClient");
 const middleware = require("../middleware");
-
+const { sendPushNotification } = require("../utils");  
+const { createNotification } = require("./notifications");  
 /**
  * 📥 1. LIRE LE FIL D'ACTUALITÉ (Live Care Feed)
  * Récupère les messages et photos liés à un patient précis.
