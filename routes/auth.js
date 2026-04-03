@@ -205,6 +205,9 @@ router.all("/reset-password", async (req, res) => {
     return res.json({ status: "success" });
 });
 
+// ============================================================
+// 5. INSCRIPTION DUO : FAMILLE + PATIENT (Public)
+// ============================================================
 router.post("/register-family-patient", async (req, res) => {
     const { 
         email, password, nom_famille, prenom_famille, tel_famille, lien_parente, ville_payeur,
@@ -216,17 +219,27 @@ router.post("/register-family-patient", async (req, res) => {
     const nomCompletFamille = `${prenom_famille || ''} ${nom_famille}`.trim();
     const nomCompletPatient = `${prenom_patient || ''} ${nom_patient}`.trim();
 
+    // ✅ Traitement des pathologies
+    let pathologiesArray = [];
+    if (pathologies) {
+        if (Array.isArray(pathologies)) {
+            pathologiesArray = pathologies;
+        } else if (typeof pathologies === 'string') {
+            pathologiesArray = pathologies.split(',').map(s => s.trim());
+        }
+    }
+
     try {
-        // 1. Création du compte Auth Supabase
+        console.log("📝 1. Création du compte Auth...");
         const { data: auth, error: authErr } = await supabase.auth.signUp({ 
             email: cleanEmail, 
             password: password 
         });
         if (authErr) throw authErr;
-
         console.log("✅ Auth créé:", auth.user.id);
 
-        // 2. Insertion dans profiles (FAMILLE)
+        // Insertion dans profiles
+        console.log("📝 2. Insertion dans profiles...");
         const { error: profileErr } = await supabase.from("profiles").insert({
             id: auth.user.id, 
             nom: nomCompletFamille,
@@ -237,15 +250,15 @@ router.post("/register-family-patient", async (req, res) => {
             role: 'FAMILLE', 
             statut_validation: 'EN_ATTENTE'
         });
-        
         if (profileErr) {
-            console.error("❌ Erreur insertion profile:", profileErr);
+            console.error("❌ Erreur profile:", profileErr);
             throw profileErr;
         }
         console.log("✅ Profile famille créé");
 
-        // 3. Insertion dans patients (LIÉ à la famille)
-        const { error: patientErr, data: patientData } = await supabase.from("patients").insert({
+        // Insertion dans patients
+        console.log("📝 3. Insertion dans patients...");
+        const patientData = {
             nom_complet: nomCompletPatient,
             prenom: prenom_patient,
             nom: nom_patient,
@@ -255,24 +268,30 @@ router.post("/register-family-patient", async (req, res) => {
             telephone: tel_patient,
             contact_urgence: contact_urgence,
             contact_urgence_tel: contact_urgence_tel,
-            pathologies: Array.isArray(pathologies) ? pathologies : (pathologies ? pathologies.split(',') : []),
+            pathologies: pathologiesArray,
             traitements: traitements || null,
             allergies: allergies || null,
             notes_medicales: notes_medicales || null,
             formule: formule || null,
-            famille_user_id: auth.user.id,  // ← LIEN DIRECT AVEC LA FAMILLE
+            famille_user_id: auth.user.id,
             statut_paiement: 'A jour', 
             statut_validation: 'EN_ATTENTE'
-        }).select();
+        };
         
+        console.log("📦 Données patient:", JSON.stringify(patientData, null, 2));
+        
+        const { error: patientErr, data: patientResult } = await supabase
+            .from("patients")
+            .insert(patientData)
+            .select();
+            
         if (patientErr) {
-            console.error("❌ Erreur insertion patient:", patientErr);
+            console.error("❌ Erreur patient:", patientErr);
             throw patientErr;
         }
-        
-        console.log("✅ Patient créé et lié à la famille:", patientData);
+        console.log("✅ Patient créé:", patientResult);
 
-        // 4. Email de confirmation
+        // Email de confirmation
         const html = `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto;">
                 <h2 style="color: #10B981;">Bienvenue chez Santé Plus !</h2>
@@ -280,17 +299,16 @@ router.post("/register-family-patient", async (req, res) => {
                 <p>Nous avons bien reçu votre demande d'admission pour le suivi de <strong>${nomCompletPatient}</strong>.</p>
                 <p>Un coordinateur va valider votre dossier sous 24h.</p>
                 <hr>
-                <p style="font-size: 12px; color: #64748B;">Santé Plus Services - Accompagnement à domicile au Bénin</p>
+                <p style="font-size: 12px;">Santé Plus Services - Bénin</p>
             </div>
         `;
-        
         await sendEmailAPI(cleanEmail, "Votre demande d'inscription - Santé Plus", html);
 
-        res.json({ status: "success", message: "Inscription en attente de validation" });
+        res.json({ status: "success", message: "Inscription enregistrée" });
         
     } catch (err) { 
         console.error("❌ Erreur Inscription:", err);
-        res.status(500).json({ error: err.message }); 
+        res.status(500).json({ error: err.message, details: err.details }); 
     }
 });
 // ============================================================
