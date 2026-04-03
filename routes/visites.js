@@ -350,17 +350,28 @@ function getDistance(lat1, lon1, lat2, lon2) {
 // ============================================================
 // 📡 RADAR LIVE (Coordinateur)
 // ============================================================
-router.get("/live-tracking", middleware(['COORDINATEUR']), async (req, res) => {
+ router.get("/live-tracking", middleware(['COORDINATEUR']), async (req, res) => {
     try {
-        const { data: activeVisits } = await supabase
+        // ✅ Correction : utiliser les bonnes colonnes
+        const { data: activeVisits, error } = await supabase
             .from("visites")
-            .select(`id, aidant_id, alerte_geofence, patient:patients(nom_complet, lat, lng), aidant:profiles!aidant_id(nom)`)
-            .eq("statut", "En cours"); 
+            .select(`
+                id, 
+                aidant_id, 
+                alerte_geofence, 
+                patient:patients (nom_complet, lat, lng), 
+                aidant:profiles!aidant_id (nom)
+            `)
+            .eq("statut", "En cours");
 
-        if (!activeVisits) return res.json([]);
+        if (error) throw error;
+        
+        if (!activeVisits || activeVisits.length === 0) {
+            return res.json([]);
+        }
 
         const liveData = await Promise.all(activeVisits.map(async (v) => {
-            const { data: lastPos } = await supabase
+            const { data: lastPos, error: posError } = await supabase
                 .from("positions_live")
                 .select("lat, lng")
                 .eq("visite_id", v.id)
@@ -368,18 +379,21 @@ router.get("/live-tracking", middleware(['COORDINATEUR']), async (req, res) => {
                 .limit(1)
                 .maybeSingle();
 
-            if (!lastPos) return null;
+            if (posError || !lastPos) return null;
+            
             return {
                 visite_id: v.id,
                 lat: lastPos.lat,
                 lng: lastPos.lng,
-                aidant_nom: v.aidant.nom,
-                patient_nom: v.patient.nom_complet,
+                aidant_nom: v.aidant?.nom || "Aidant",
+                patient_nom: v.patient?.nom_complet || "Patient",
                 is_inside: !v.alerte_geofence
             };
         }));
+        
         res.json(liveData.filter(d => d !== null));
     } catch (e) { 
+        console.error("❌ Erreur live-tracking:", e.message);
         res.status(500).json({ error: e.message }); 
     }
 });
