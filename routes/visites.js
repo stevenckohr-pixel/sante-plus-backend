@@ -433,19 +433,6 @@ function getDistance(lat1, lon1, lat2, lon2) {
 router.get("/active/:patientId", middleware(["FAMILLE", "COORDINATEUR"]), async (req, res) => {
     const { patientId } = req.params;
 
-    if (req.user.role === "FAMILLE") {
-        const { data: patient, error } = await supabase
-            .from("patients")
-            .select("id")
-            .eq("id", patientId)
-            .eq("famille_user_id", req.user.userId)
-            .single();
-
-        if (error || !patient) {
-            return res.status(403).json({ error: "Accès non autorisé à ce dossier" });
-        }
-    }
-
     try {
         const { data: visite, error: visiteError } = await supabase
             .from("visites")
@@ -457,7 +444,7 @@ router.get("/active/:patientId", middleware(["FAMILLE", "COORDINATEUR"]), async 
             .maybeSingle();
 
         if (visiteError || !visite) {
-            return res.json({});
+            return res.json({ hasPosition: false });
         }
 
         const { data: lastPos, error: posError } = await supabase
@@ -469,28 +456,30 @@ router.get("/active/:patientId", middleware(["FAMILLE", "COORDINATEUR"]), async 
             .maybeSingle();
 
         if (posError || !lastPos) {
-            return res.json({});
+            return res.json({ hasPosition: false });
         }
 
-        const { data: aidant, error: aidantError } = await supabase
+        const { data: aidant } = await supabase
             .from("profiles")
-            .select("nom")
+            .select("nom, photo_url")
             .eq("id", visite.aidant_id)
-            .single();
+            .maybeSingle();   
 
         res.json({
+            hasPosition: true,
             lat: lastPos.lat,
             lng: lastPos.lng,
+            last_update: lastPos.created_at,
             aidant_nom: aidant?.nom || "Intervenant",
-            is_inside: !visite.alerte_geofence,
-            last_update: lastPos.created_at
+            aidant_photo: aidant?.photo_url || null,
+            is_inside: !visite.alerte_geofence
         });
+        
     } catch (err) {
-        console.error("❌ Erreur route /active/:patientId:", err.message);
+        console.error("❌ Erreur:", err.message);
         res.status(500).json({ error: err.message });
     }
 });
-
 // ============================================================
 // 📍 TRAJECTOIRE D'UNE VISITE
 // ============================================================
