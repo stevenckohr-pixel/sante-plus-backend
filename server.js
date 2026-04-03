@@ -4,6 +4,7 @@ const cors = require("cors");
 const app = express();
 const multer = require("multer");
 const upload = multer({ storage: multer.memoryStorage() });
+app.use("/api/visites", upload.any(), visitesRoutes);
 
 // --- CONFIGURATION DE SÉCURITÉ (CORS) ---
 // Liste des origines autorisées (SANS slash à la fin)
