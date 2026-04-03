@@ -5,6 +5,8 @@ const router = express.Router();
 const supabase = require("../supabaseClient");
 const middleware = require("../middleware");
 const { sendPushNotification, getDurationFromPack, calculateSubscriptionEndDate } = require("../utils");
+const { createNotification } = require("./notifications");
+
 
 // ============================================================
 // 📊 1. LISTER LES ABONNEMENTS
@@ -78,12 +80,21 @@ router.post("/pay", middleware(["COORDINATEUR"]), async (req, res) => {
         })
         .eq("id", abonnement_id);
 
-      if (abo.patient.famille_user_id) {
-        sendPushNotification(
-          abo.patient.famille_user_id,
-          "✅ Paiement validé",
-          `Le paiement pour ${abo.patient.nom_complet} a été reçu. Abonnement valable ${durationMonths} mois.`,
-          "/#billing"
+// Après avoir mis à jour le paiement
+if (abo.patient.famille_user_id) {
+    sendPushNotification(
+        abo.patient.famille_user_id,
+        "✅ Paiement validé",
+        `Le paiement pour ${abo.patient.nom_complet} a été reçu.`,
+        "/#billing"
+    );
+    
+    await createNotification(
+        abo.patient.famille_user_id,
+        "💳 Paiement reçu",
+        `Votre paiement de ${montant_recu} CFA a été confirmé pour ${abo.patient.nom_complet}.`,
+        "payment",
+        "/#billing"
         );
       }
     }
