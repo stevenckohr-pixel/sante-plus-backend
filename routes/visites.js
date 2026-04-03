@@ -12,7 +12,6 @@ router.post("/start", middleware(["AIDANT"]), async (req, res) => {
     const { patient_id, gps_start } = req.body;
 
     try {
-        // 🛡️ VÉRIFICATION : L'aidant est-il bien assigné à ce patient ?
         const { data: planning, error: planningErr } = await supabase
             .from("planning")
             .select("id, date_prevue")
@@ -26,7 +25,6 @@ router.post("/start", middleware(["AIDANT"]), async (req, res) => {
             });
         }
 
-        // Vérifier si une visite est déjà en cours pour ce patient
         const { data: existingVisit, error: existingErr } = await supabase
             .from("visites")
             .select("id, statut")
@@ -43,23 +41,21 @@ router.post("/start", middleware(["AIDANT"]), async (req, res) => {
             });
         }
 
-        // Démarrer la visite
         const { data: visite, error } = await supabase
             .from("visites")
             .insert([{
                 patient_id,
                 aidant_id: req.user.userId,
-                planning_id: planning.id, // Lier au planning
+                planning_id: planning.id,
                 heure_debut: new Date(),
                 gps_start: gps_start,
                 statut: "En cours",
             }])
-            .select(`*, patient:patients(nom_complet, famille_user_id)`)
+            .select(`*, patient:patients(nom_complet, famille_user_id), aidant:profiles!aidant_id(nom)`)
             .single();
 
         if (error) throw error;
 
-        // Mettre à jour le planning si besoin
         if (planning.id) {
             await supabase
                 .from("planning")
@@ -67,19 +63,20 @@ router.post("/start", middleware(["AIDANT"]), async (req, res) => {
                 .eq("id", planning.id);
         }
 
-        // Notification à la famille
         if (visite.patient && visite.patient.famille_user_id) {
+            // Notification push
             sendPushNotification(
                 visite.patient.famille_user_id,
-                "🔔 SPS : Début d'intervention",
+                "🔔 Début d'intervention",
                 `L'intervenant vient d'arriver au domicile de ${visite.patient.nom_complet}.`,
                 "/#feed"
             );
 
+            // ✅ Notification dans la base (corrigée)
             await createNotification(
-                v.patient.famille_user_id,
-                "📸 Nouveau rapport de visite",
-                `L'intervention pour ${v.patient.nom_complet} est terminée. Une photo est disponible.`,
+                visite.patient.famille_user_id,
+                "🔔 Début d'intervention",
+                `${visite.aidant?.nom || "L'aidant"} est arrivé au domicile de ${visite.patient.nom_complet}.`,
                 "visit",
                 "/#feed"
             );
@@ -147,11 +144,41 @@ router.post("/end", middleware(["AIDANT"]), async (req, res) => {
 
     if (v.patient && v.patient.famille_user_id) {
         sendPushNotification(
-            v.patient.famille_user_id,
+                visite.patient.famille_user_id,
             "📸 SPS : Rapport de visite disponible",
             `L'intervention pour ${v.patient.nom_complet} est terminée. Consultez le journal.`,
             "/#feed"
         );
+
+        
+}
+4. Ajouter la notification dans la route /validate
+javascript
+if (statut === "Validé" && visite.patient.famille_user_id) {
+    sendPushNotification(
+        visite.patient.famille_user_id,
+        "✅ Bilan validé par la coordination",
+        `Le rapport pour ${visite.patient.nom_complet} a été certifié conforme.`,
+        "/#feed"
+    );
+    
+    await createNotification(
+        visite.patient.famille_user_id,
+        "✅ Visite validée",
+        `Le rapport de visite pour ${visite.patient.nom_complet} a été certifié conforme.`,
+        "visit",
+        "/#feed"
+    );
+}
+📋 RÉSUMÉ DES CORRECTIONS
+Route	Problème	Correction
+/start	Variable v inexistante	Remplacer par visite
+/start	Import manquant	Ajouter createNotification
+/end	Notification base manquante	Ajouter createNotification
+/validate	Notification base manquante	Ajouter createNotification
+Applique ces corrections et ton visites.js sera 100% fonctionnel ! 🚀
+
+
     }
 
     res.json({ status: "success" });
@@ -184,6 +211,14 @@ router.post("/validate", middleware(["COORDINATEUR"]), async (req, res) => {
         `Le rapport pour ${visite.patient.nom_complet} a été certifié conforme.`,
         "/#feed"
       );
+
+    await createNotification(
+        visite.patient.famille_user_id,
+        "✅ Visite validée",
+        `Le rapport de visite pour ${visite.patient.nom_complet} a été certifié conforme.`,
+        "visit",
+        "/#feed"
+        );
     }
 
     res.json({ status: "success" });
