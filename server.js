@@ -55,7 +55,7 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/aidants", aidantRoutes);
 app.use("/api/patients", patientRoutes);
 app.use("/api/assignments", assignmentRoutes);
-app.use("/api/visites", upload.any(), visitesRoutes);
+app.use("/api/visites", express.json(), visitesRoutes);
 app.use("/api/messages", upload.any(), messagesRoutes);
 app.use("/api/commandes", upload.any(), commandesRoutes);
 app.use("/api/planning", planningRoutes);
