@@ -284,21 +284,44 @@ function verifyWebhookSignature(signature, payload) {
   }
   
   try {
+    // ✅ FedaPay envoie la signature au format "t=...,s=..."
+    // Exemple: "t=1775253140,s=9aa6f7615e2626f6b425c2ea832a01b36122a7963f680a142302a4c30f4c23ac"
+    const parts = signature.split(',');
+    let timestamp = null;
+    let signatureHash = null;
+    
+    for (const part of parts) {
+      if (part.startsWith('t=')) {
+        timestamp = part.substring(2);
+      } else if (part.startsWith('s=')) {
+        signatureHash = part.substring(2);
+      }
+    }
+    
+    if (!timestamp || !signatureHash) {
+      console.error("❌ [WEBHOOK] Format de signature invalide");
+      return false;
+    }
+    
+    // Construire le payload à signer (timestamp + "." + body)
+    const signedPayload = timestamp + "." + payload;
+    
     const expectedSignature = crypto
       .createHmac('sha256', process.env.FEDAPAY_WEBHOOK_SECRET)
-      .update(payload)
+      .update(signedPayload)
       .digest('hex');
     
+    // Comparaison sécurisée
     return crypto.timingSafeEqual(
-      Buffer.from(signature),
-      Buffer.from(expectedSignature)
+      Buffer.from(signatureHash, 'hex'),
+      Buffer.from(expectedSignature, 'hex')
     );
+    
   } catch (err) {
     console.error("❌ [WEBHOOK] Erreur vérification signature:", err.message);
     return false;
   }
 }
-
 /**
  * 📊 Récupère les derniers appels webhook pour debug
  */
