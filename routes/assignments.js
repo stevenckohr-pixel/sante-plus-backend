@@ -116,14 +116,15 @@ router.post("/assign", middleware(["COORDINATEUR"]), async (req, res) => {
             date_prevue: date_debut || new Date().toISOString().split('T')[0]
         };
 
-        // Ajout des champs selon le type
-        if (assignType === 'temporelle' && date_fin) {
-            assignData.date_fin = date_fin;
-        }
-        
+        // ✅ CORRECTION : Ajouter heure_prevue SEULEMENT pour les assignations ponctuelles
         if (assignType === 'ponctuelle') {
             assignData.heure_prevue = heure_prevue || "09:00";
             assignData.statut = "Planifié";
+        }
+        
+        // Ajout des autres champs selon le type
+        if (assignType === 'temporelle' && date_fin) {
+            assignData.date_fin = date_fin;
         }
 
         // Créer l'assignation
@@ -133,9 +134,12 @@ router.post("/assign", middleware(["COORDINATEUR"]), async (req, res) => {
             .select()
             .single();
 
-        if (error) throw error;
+        if (error) {
+            console.error("❌ Erreur SQL:", error);
+            throw error;
+        }
 
-        // Message personnalisé selon le type
+        // Messages personnalisés
         let messageAidant = "";
         let messageFamille = "";
         
@@ -156,44 +160,18 @@ router.post("/assign", middleware(["COORDINATEUR"]), async (req, res) => {
                 break;
         }
 
-        // 🔔 Notifier l'aidant
-        sendPushNotification(
-            aidant_id,
-            "📋 Nouvelle assignation",
-            messageAidant,
-            "/#planning"
-        );
+        // Notifications
+        sendPushNotification(aidant_id, "📋 Nouvelle assignation", messageAidant, "/#planning");
+        await createNotification(aidant_id, "📋 Nouvelle mission", messageAidant, "assignment", "/#planning");
 
-
-        await createNotification(
-            aidant_id,
-            "📋 Nouvelle mission",
-            messageAidant,
-            "assignment",
-            "/#planning"
-        );
-
-        // 🔔 Notifier la famille
         if (patient.famille_user_id) {
-            sendPushNotification(
-                patient.famille_user_id,
-                assignType === 'ponctuelle' ? "📅 Visite programmée" : "👨‍⚕️ Nouvel intervenant",
-                messageFamille,
-                "/#patients"
-            );
-
-            await createNotification(
-                    patient.famille_user_id,
-                    assignType === 'ponctuelle' ? "📅 Visite programmée" : "👨‍⚕️ Nouvel intervenant",
-                    messageFamille,
-                    "assignment",
-                    "/#patients"
-                );
+            sendPushNotification(patient.famille_user_id, assignType === 'ponctuelle' ? "📅 Visite programmée" : "👨‍⚕️ Nouvel intervenant", messageFamille, "/#patients");
+            await createNotification(patient.famille_user_id, assignType === 'ponctuelle' ? "📅 Visite programmée" : "👨‍⚕️ Nouvel intervenant", messageFamille, "assignment", "/#patients");
         }
 
         res.json({ 
             status: "success", 
-            message: `Assignation ${assignType === 'permanente' ? 'permanente' : assignType === 'temporelle' ? 'périodique' : 'ponctuelle'} créée`,
+            message: `Assignation créée`,
             assignment: newAssignment
         });
 
