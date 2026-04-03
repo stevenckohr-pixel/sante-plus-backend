@@ -415,12 +415,17 @@ router.post("/subscribe-push", middleware(), async (req, res) => {
 // 8. LISTER LES PROFILS (Pour assignation Familles/Aidants)
 // ============================================================
 router.get("/profiles", middleware(["COORDINATEUR"]), async (req, res) => {
-  const { role } = req.query;
-  const { data, error } = await supabase.from("profiles").select("id, nom, email, role").eq("role", role);
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
+    const { role } = req.query;
+    let query = supabase.from("profiles").select("id, nom, email");
+    
+    if (role) {
+        query = query.eq("role", role);
+    }
+    
+    const { data, error } = await query;
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
 });
-
 
 
 /**
