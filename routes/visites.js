@@ -689,8 +689,6 @@ router.get("/geofence-alerts", middleware(['COORDINATEUR']), async (req, res) =>
 });
 
 // ============================================================
-// 📍 4. RÉCUPÉRER TOUS LES DOMICILES PATIENTS
-// ============================================================
 // ============================================================
 // 📍 4. RÉCUPÉRER TOUS LES DOMICILES PATIENTS
 // ============================================================
@@ -708,7 +706,7 @@ router.get("/patients-locations", middleware(['COORDINATEUR']), async (req, res)
                 statut_validation,
                 famille:famille_user_id (nom, email)
             `)
-            .eq("statut_validation", "ACTIF")  /
+            .eq("statut_validation", "ACTIF")
             .not("lat", "is", null)
             .not("lng", "is", null);
 
