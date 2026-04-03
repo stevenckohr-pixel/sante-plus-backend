@@ -80,8 +80,8 @@ router.post("/pay", middleware(["COORDINATEUR"]), async (req, res) => {
         })
         .eq("id", abonnement_id);
 
-      // ✅ NOTIFICATIONS (corrigé)
       if (abo.patient.famille_user_id) {
+        // Notification push
         sendPushNotification(
           abo.patient.famille_user_id,
           "✅ Paiement validé",
@@ -89,6 +89,7 @@ router.post("/pay", middleware(["COORDINATEUR"]), async (req, res) => {
           "/#billing"
         );
         
+        // Notification dans la base
         await createNotification(
           abo.patient.famille_user_id,
           "💳 Paiement reçu",
@@ -105,6 +106,7 @@ router.post("/pay", middleware(["COORDINATEUR"]), async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
 // ============================================================
 // 💳 3. GÉNÉRER UN LIEN FEDAPAY
 // ============================================================
@@ -219,6 +221,14 @@ router.post("/webhook", async (req, res) => {
             `Paiement reçu pour ${abo.patient.nom_complet}. Abonnement valable ${durationMonths} mois jusqu'au ${endDateFormatted}.`,
             "/#dashboard"
           );
+
+                        await createNotification(
+                abo.patient.famille_user_id,
+                "💎 Abonnement activé",
+                `Votre abonnement pour ${abo.patient.nom_complet} est actif jusqu'au ${endDateFormatted}.`,
+                "payment",
+                "/#dashboard"
+              );
         }
         
         console.log(`✅ [WEBHOOK] Abonnement ${durationMonths} mois - Valable jusqu'au ${endDateFormatted}`);
