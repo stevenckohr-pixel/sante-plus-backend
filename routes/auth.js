@@ -270,8 +270,25 @@ router.post("/register-family-patient", async (req, res) => {
             statut_validation: 'EN_ATTENTE'
         }]);
 
-        const html = `<div style="padding: 20px;"><h2>Demande reçue !</h2><p>Un coordinateur validera votre accès sous 24h.</p></div>`;
-        await sendEmailAPI(cleanEmail, "Votre demande d'inscription - Santé Plus", html);
+      const html = `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto;">
+              <h2 style="color: #10B981;">Bienvenue chez Santé Plus !</h2>
+              <p>Bonjour ${nomCompletFamille},</p>
+              <p>Nous avons bien reçu votre demande d'admission pour le suivi de <strong>${nomCompletPatient}</strong>.</p>
+              
+              <div style="background: #F1F5F9; padding: 15px; border-radius: 12px; margin: 20px 0;">
+                  <p><strong>📦 Formule choisie :</strong> ${formule || 'Standard'}</p>
+                  <p><strong>📧 Email :</strong> ${cleanEmail}</p>
+                  <p><strong>📞 Téléphone :</strong> ${tel_famille || 'Non renseigné'}</p>
+              </div>
+              
+              <p>Un coordinateur va valider votre dossier et vous enverra vos identifiants de connexion sous 24h.</p>
+              
+              <hr style="margin: 30px 0;">
+              <p style="font-size: 12px; color: #64748B;">Santé Plus Services - Accompagnement à domicile au Bénin</p>
+          </div>
+      `;
+      await sendEmailAPI(cleanEmail, "Votre demande d'inscription - Santé Plus", html);
 
         res.json({ status: "success" });
     } catch (err) { 
