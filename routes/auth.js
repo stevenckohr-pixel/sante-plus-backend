@@ -205,9 +205,6 @@ router.all("/reset-password", async (req, res) => {
     return res.json({ status: "success" });
 });
 
-// ============================================================
-// 5. INSCRIPTION DUO : FAMILLE + PATIENT (Public)
-// ============================================================
 router.post("/register-family-patient", async (req, res) => {
     const { 
         email, password, nom_famille, prenom_famille, tel_famille, lien_parente, ville_payeur,
@@ -219,26 +216,18 @@ router.post("/register-family-patient", async (req, res) => {
     const nomCompletFamille = `${prenom_famille || ''} ${nom_famille}`.trim();
     const nomCompletPatient = `${prenom_patient || ''} ${nom_patient}`.trim();
 
-    // ✅ Traitement des pathologies (peut être tableau ou chaîne)
-    let pathologiesArray = [];
-    if (pathologies) {
-        if (Array.isArray(pathologies)) {
-            pathologiesArray = pathologies;
-        } else if (typeof pathologies === 'string') {
-            // Si c'est une chaîne comme "Diabète,Hypertension"
-            pathologiesArray = pathologies.split(',').map(s => s.trim());
-        }
-    }
-
     try {
+        // 1. Création du compte Auth Supabase
         const { data: auth, error: authErr } = await supabase.auth.signUp({ 
             email: cleanEmail, 
             password: password 
         });
         if (authErr) throw authErr;
 
-        // Insertion dans profiles
-        await supabase.from("profiles").insert([{
+        console.log("✅ Auth créé:", auth.user.id);
+
+        // 2. Insertion dans profiles (FAMILLE)
+        const { error: profileErr } = await supabase.from("profiles").insert({
             id: auth.user.id, 
             nom: nomCompletFamille,
             prenom: prenom_famille,
@@ -247,10 +236,16 @@ router.post("/register-family-patient", async (req, res) => {
             adresse: ville_payeur,
             role: 'FAMILLE', 
             statut_validation: 'EN_ATTENTE'
-        }]);
+        });
+        
+        if (profileErr) {
+            console.error("❌ Erreur insertion profile:", profileErr);
+            throw profileErr;
+        }
+        console.log("✅ Profile famille créé");
 
-        // Insertion dans patients
-        await supabase.from("patients").insert([{
+        // 3. Insertion dans patients (LIÉ à la famille)
+        const { error: patientErr, data: patientData } = await supabase.from("patients").insert({
             nom_complet: nomCompletPatient,
             prenom: prenom_patient,
             nom: nom_patient,
@@ -260,39 +255,41 @@ router.post("/register-family-patient", async (req, res) => {
             telephone: tel_patient,
             contact_urgence: contact_urgence,
             contact_urgence_tel: contact_urgence_tel,
-            pathologies: pathologiesArray,  // ✅ Tableau propre
+            pathologies: Array.isArray(pathologies) ? pathologies : (pathologies ? pathologies.split(',') : []),
             traitements: traitements || null,
             allergies: allergies || null,
             notes_medicales: notes_medicales || null,
             formule: formule || null,
-            famille_user_id: auth.user.id, 
+            famille_user_id: auth.user.id,  // ← LIEN DIRECT AVEC LA FAMILLE
             statut_paiement: 'A jour', 
             statut_validation: 'EN_ATTENTE'
-        }]);
+        }).select();
+        
+        if (patientErr) {
+            console.error("❌ Erreur insertion patient:", patientErr);
+            throw patientErr;
+        }
+        
+        console.log("✅ Patient créé et lié à la famille:", patientData);
 
-      const html = `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto;">
-              <h2 style="color: #10B981;">Bienvenue chez Santé Plus !</h2>
-              <p>Bonjour ${nomCompletFamille},</p>
-              <p>Nous avons bien reçu votre demande d'admission pour le suivi de <strong>${nomCompletPatient}</strong>.</p>
-              
-              <div style="background: #F1F5F9; padding: 15px; border-radius: 12px; margin: 20px 0;">
-                  <p><strong>📦 Formule choisie :</strong> ${formule || 'Standard'}</p>
-                  <p><strong>📧 Email :</strong> ${cleanEmail}</p>
-                  <p><strong>📞 Téléphone :</strong> ${tel_famille || 'Non renseigné'}</p>
-              </div>
-              
-              <p>Un coordinateur va valider votre dossier et vous enverra vos identifiants de connexion sous 24h.</p>
-              
-              <hr style="margin: 30px 0;">
-              <p style="font-size: 12px; color: #64748B;">Santé Plus Services - Accompagnement à domicile au Bénin</p>
-          </div>
-      `;
-      await sendEmailAPI(cleanEmail, "Votre demande d'inscription - Santé Plus", html);
+        // 4. Email de confirmation
+        const html = `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto;">
+                <h2 style="color: #10B981;">Bienvenue chez Santé Plus !</h2>
+                <p>Bonjour ${nomCompletFamille},</p>
+                <p>Nous avons bien reçu votre demande d'admission pour le suivi de <strong>${nomCompletPatient}</strong>.</p>
+                <p>Un coordinateur va valider votre dossier sous 24h.</p>
+                <hr>
+                <p style="font-size: 12px; color: #64748B;">Santé Plus Services - Accompagnement à domicile au Bénin</p>
+            </div>
+        `;
+        
+        await sendEmailAPI(cleanEmail, "Votre demande d'inscription - Santé Plus", html);
 
-        res.json({ status: "success" });
+        res.json({ status: "success", message: "Inscription en attente de validation" });
+        
     } catch (err) { 
-        console.error("Erreur Inscription:", err);
+        console.error("❌ Erreur Inscription:", err);
         res.status(500).json({ error: err.message }); 
     }
 });
