@@ -57,11 +57,12 @@ router.post("/start", middleware(["AIDANT"]), async (req, res) => {
 
         if (existingErr) throw existingErr;
 
-        if (existingVisit) {
-            return res.status(400).json({ 
-                error: "Une visite est déjà en cours ou en attente de validation pour ce patient" 
-            });
-        }
+            if (existingVisit) {
+                return res.status(400).json({ 
+                    error: "Une visite est déjà en cours",
+                    visite_id: existingVisit.id  
+                });
+            }
 
         // Créer la visite
         const { data: visite, error } = await supabase
