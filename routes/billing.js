@@ -113,33 +113,41 @@ router.post("/pay", middleware(["COORDINATEUR"]), async (req, res) => {
 router.post("/generate-payment", middleware(["FAMILLE"]), async (req, res) => {
   const { abonnement_id, montant, email_client } = req.body;
   
-  if (!process.env.FEDAPAY_SECRET_KEY)
-    return res.status(500).json({ error: "Configuration FedaPay manquante sur le serveur." });
+  console.log("🔵 Génération paiement:", { abonnement_id, montant });
+  
+  if (!process.env.FEDAPAY_SECRET_KEY) {
+    console.error("❌ FEDAPAY_SECRET_KEY manquante");
+    return res.status(500).json({ error: "Configuration FedaPay manquante" });
+  }
 
   try {
     const response = await axios.post(
       "https://api.fedapay.com/v1/transactions",
       {
-        description: `Santé Plus - Facture #${abonnement_id.substring(0, 8)}`,
+        description: `Santé Plus - Abonnement #${abonnement_id.substring(0, 8)}`,
         amount: montant,
         currency: { iso: "XOF" },
         callback_url: "https://stevenckohr-pixel.github.io/sante-plus-frontend/#billing?status=success",
+        return_url: "https://stevenckohr-pixel.github.io/sante-plus-frontend/#billing",
         metadata: { abonnement_id: abonnement_id },
         customer: { email: email_client || "client@santeplus.bj" },
       },
       {
-        headers: { Authorization: `Bearer ${process.env.FEDAPAY_SECRET_KEY}` },
-      },
+        headers: { 
+          Authorization: `Bearer ${process.env.FEDAPAY_SECRET_KEY}`,
+          "Content-Type": "application/json"
+        },
+      }
     );
 
-    const transaction = response.data.v1 ? response.data.v1.transaction : response.data.transaction;
-    res.json({ url: `https://checkout.fedapay.com/${transaction.token}` });
+    const transaction = response.data.transaction || response.data.v1?.transaction;
+    res.json({ url: transaction.url || `https://checkout.fedapay.com/${transaction.token}` });
+    
   } catch (err) {
-    console.error("FedaPay Error:", err.response?.data || err.message);
+    console.error("❌ FedaPay Error:", err.response?.data || err.message);
     res.status(500).json({ error: "Impossible de générer le lien de paiement." });
   }
 });
-
 // ============================================================
 // ⚡ 4. WEBHOOK FEDAPAY (avec gestion des durées)
 // ============================================================
