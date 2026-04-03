@@ -70,6 +70,9 @@ router.post("/mark-all-read", middleware(), async (req, res) => {
  */
 async function createNotification(userId, title, message, type = 'default', url = null) {
     try {
+        // ✅ Si l'URL est vide ou null, mettre une valeur par défaut
+        const finalUrl = url || '/home';
+        
         const { error } = await supabase
             .from("notifications")
             .insert([{
@@ -77,17 +80,16 @@ async function createNotification(userId, title, message, type = 'default', url 
                 title,
                 message,
                 type,
-                url,
+                url: finalUrl,
                 read: false,
                 created_at: new Date()
             }]);
-
+            
         if (error) throw error;
-        console.log(`🔔 Notification créée pour ${userId}: ${title}`);
         
         // Envoyer aussi une notification push
         const { sendPushNotification } = require("../utils");
-        await sendPushNotification(userId, title, message, url || "/#notifications");
+        await sendPushNotification(userId, title, message, finalUrl);
         
         return true;
     } catch (err) {
