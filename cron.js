@@ -1,6 +1,7 @@
 const cron = require("node-cron");
 const supabase = require("./supabaseClient");
 const { sendPushNotification } = require("./utils");
+const { createNotification } = require("./routes/notifications");
 
 /**
  * 📅 CALCULER LA DATE DE FIN D'ABONNEMENT (1 mois + 5 jours)
@@ -148,6 +149,13 @@ function startCronJobs() {
             `L'abonnement pour ${patient.nom_complet} est expiré depuis le ${formatDate(endDate)}. Renouvelez pour réactiver le suivi.`,
             "/#subscription"
           );
+                await createNotification(
+        patient.famille_user_id,
+        "🔒 Abonnement expiré",
+        `L'abonnement pour ${patient.nom_complet} est expiré. Veuillez renouveler.`,
+        "expiration",
+        "/#subscription"
+    );
         }
         console.log(`🔒 Patient bloqué: ${patient.nom_complet} (expiré depuis ${formatDate(endDate)})`);
       }
@@ -183,6 +191,14 @@ function startCronJobs() {
           `Votre abonnement pour ${patient.nom_complet} expire dans ${joursRestants} jour(s) (le ${formatDate(endDate)}). Pensez à renouveler.`,
           "/#subscription"
         );
+
+        await createNotification(
+                patient.famille_user_id,
+                "⚠️ Abonnement bientôt expiré",
+                `Votre abonnement pour ${patient.nom_complet} expire dans ${joursRestants} jour(s) (le ${formatDate(endDate)}).`,
+                "expiration",
+                "/#subscription"
+            );
         rappelsEnvoyes++;
         console.log(`⚠️ Rappel envoyé pour ${patient.nom_complet}: expire dans ${joursRestants} jours`);
       }
