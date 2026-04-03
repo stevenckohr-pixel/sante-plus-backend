@@ -459,25 +459,27 @@ router.put("/update-aidant-info", middleware(["AIDANT"]), async (req, res) => {
 router.put("/update-profile-full", middleware(), async (req, res) => {
     const { prenom, nom, email, telephone, adresse } = req.body;
     
-    // ✅ Correction : le champ 'nom' doit être le NOM DE FAMILLE uniquement
-    // Le prénom va dans la colonne 'prenom'
-    // Le nom complet = prenom + " " + nom
+    console.log("📝 Mise à jour profil:", { prenom, nom, email, telephone, adresse });
     
-    const nomComplet = `${prenom || ''} ${nom || ''}`.trim();
+    // ✅ Mise à jour simple - sans nom_complet
+    const updateData = {};
+    if (prenom !== undefined) updateData.prenom = prenom || null;
+    if (nom !== undefined) updateData.nom = nom || null;
+    if (email !== undefined) updateData.email = email || null;
+    if (telephone !== undefined) updateData.telephone = telephone || null;
+    if (adresse !== undefined) updateData.adresse = adresse || null;
     
     const { error } = await supabase
         .from("profiles")
-        .update({ 
-            prenom: prenom,      // ← Prénom seul
-            nom: nom,            // ← Nom seul (pas le complet !)
-            nom_complet: nomComplet,  // ← Optionnel, pour affichage
-            email, 
-            telephone, 
-            adresse 
-        })
+        .update(updateData)
         .eq("id", req.user.userId);
     
-    if (error) return res.status(500).json({ error: error.message });
+    if (error) {
+        console.error("❌ Erreur update-profile-full:", error);
+        return res.status(500).json({ error: error.message });
+    }
+    
+    console.log("✅ Profil mis à jour avec succès");
     res.json({ status: "success" });
 });
 
