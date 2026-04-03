@@ -122,19 +122,18 @@ router.post("/confirm", middleware(["COORDINATEUR"]), async (req, res) => {
 /**
  * 📦 3. FINALISER LA LIVRAISON (Aidant)
  */
-/**
- * 📦 3. FINALISER LA LIVRAISON (Aidant)
- */
 router.post("/deliver", middleware(["AIDANT"]), upload.single('photo_livraison'), async (req, res) => {
     const { commande_id } = req.body;
-    const photoFile = req.file;  // ← upload.single donne req.file
+    const photoFile = req.file;  // ← Important : req.file, pas req.files
+
+    console.log("📦 Requête reçue:", { commande_id, hasFile: !!photoFile });
 
     if (!photoFile) {
         return res.status(400).json({ error: "Photo obligatoire" });
     }
 
     try {
-        // Vérifier que l'aidant est bien assigné à cette commande
+        // Vérifier la commande
         const { data: commande, error: checkErr } = await supabase
             .from("commandes_meds")
             .select("id, aidant_id, patient_id")
@@ -149,54 +148,64 @@ router.post("/deliver", middleware(["AIDANT"]), upload.single('photo_livraison')
             return res.status(403).json({ error: "Vous n'êtes pas assigné à cette commande" });
         }
 
-        // Upload de la photo
+        // Upload photo
         const fileName = `commandes/${commande_id}_${Date.now()}.jpg`;
-        await supabase.storage.from("preuves").upload(fileName, photoFile.buffer, {
-            contentType: 'image/jpeg',
-            upsert: true
-        });
+        const { error: uploadError } = await supabase.storage
+            .from("preuves")
+            .upload(fileName, photoFile.buffer, {
+                contentType: 'image/jpeg',
+                upsert: true
+            });
+        
+        if (uploadError) throw uploadError;
         
         const { data: urlData } = supabase.storage.from("preuves").getPublicUrl(fileName);
         const photoUrl = urlData.publicUrl;
 
         // Mettre à jour la commande
-        const { data: cmd, error: errCmd } = await supabase
+        const { error: updateError } = await supabase
             .from("commandes_meds")
             .update({
                 photo_livraison: photoUrl,
                 statut: "Livrée",
                 date_livraison: new Date()
             })
-            .eq("id", commande_id)
-            .select('patient_id, patient:patients(nom_complet, famille_user_id)')
-            .single();
+            .eq("id", commande_id);
+        
+        if (updateError) throw updateError;
 
-        if (errCmd) throw errCmd;
+        // Récupérer les infos pour notification
+        const { data: patient } = await supabase
+            .from("patients")
+            .select("nom_complet, famille_user_id")
+            .eq("id", commande.patient_id)
+            .single();
 
         // Ajouter dans le feed
         await supabase.from("messages").insert([{
-            patient_id: cmd.patient_id,
+            patient_id: commande.patient_id,
             sender_id: req.user.userId,
             content: photoUrl,
             is_photo: true,
             type_media: 'DOCUMENT',
-            titre_media: `Reçu Pharmacie - ${cmd.patient.nom_complet}`
+            titre_media: `Reçu Pharmacie - ${patient.nom_complet}`
         }]);
 
         // Notification à la famille
-        if (cmd.patient && cmd.patient.famille_user_id) {
+        if (patient.famille_user_id) {
             await sendPushNotification(
-                cmd.patient.famille_user_id,
+                patient.famille_user_id,
                 "📦 Médicaments livrés",
-                `Les médicaments pour ${cmd.patient.nom_complet} ont été livrés.`,
+                `Les médicaments pour ${patient.nom_complet} ont été livrés.`,
                 "/#feed"
             );
         }
 
-        res.json({ status: "success", message: "Livraison confirmée" });
+        console.log("✅ Livraison confirmée pour commande:", commande_id);
+        res.json({ status: "success" });
 
     } catch (err) {
-        console.error("❌ Erreur livraison:", err.message);
+        console.error("❌ Erreur livraison:", err);
         res.status(500).json({ error: err.message });
     }
 });
