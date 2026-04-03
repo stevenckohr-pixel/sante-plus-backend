@@ -219,6 +219,17 @@ router.post("/register-family-patient", async (req, res) => {
     const nomCompletFamille = `${prenom_famille || ''} ${nom_famille}`.trim();
     const nomCompletPatient = `${prenom_patient || ''} ${nom_patient}`.trim();
 
+    // ✅ Traitement des pathologies (peut être tableau ou chaîne)
+    let pathologiesArray = [];
+    if (pathologies) {
+        if (Array.isArray(pathologies)) {
+            pathologiesArray = pathologies;
+        } else if (typeof pathologies === 'string') {
+            // Si c'est une chaîne comme "Diabète,Hypertension"
+            pathologiesArray = pathologies.split(',').map(s => s.trim());
+        }
+    }
+
     try {
         const { data: auth, error: authErr } = await supabase.auth.signUp({ 
             email: cleanEmail, 
@@ -249,11 +260,11 @@ router.post("/register-family-patient", async (req, res) => {
             telephone: tel_patient,
             contact_urgence: contact_urgence,
             contact_urgence_tel: contact_urgence_tel,
-            pathologies: pathologies ? JSON.parse(pathologies) : [],
-            traitements: traitements,
-            allergies: allergies,
-            notes_medicales: notes_medicales,
-            formule: formule,
+            pathologies: pathologiesArray,  // ✅ Tableau propre
+            traitements: traitements || null,
+            allergies: allergies || null,
+            notes_medicales: notes_medicales || null,
+            formule: formule || null,
             famille_user_id: auth.user.id, 
             statut_paiement: 'A jour', 
             statut_validation: 'EN_ATTENTE'
@@ -268,8 +279,6 @@ router.post("/register-family-patient", async (req, res) => {
         res.status(500).json({ error: err.message }); 
     }
 });
-
-
 // ============================================================
 // 6. CRÉATION D'EMPLOYÉ PAR LE COORDINATEUR (Avec envoi d'email)
 // ============================================================
