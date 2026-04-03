@@ -179,25 +179,30 @@ router.get("/", middleware(["COORDINATEUR", "AIDANT", "FAMILLE"]), async (req, r
             *,
             patient:patients (id, nom_complet, adresse, famille_user_id),
             demandeur:profiles!commandes_meds_demandeur_id_fkey (nom),
-            aidant:profiles!commandes_meds_aidant_id_fkey (nom)
+            aidant:profiles!commandes_meds_aidant_id_fkey (nom, telephone)
         `);
 
         if (req.user.role === "AIDANT") {
-            query = query.eq("aidant_id", req.user.userId);
+            // ✅ Aidant voit les commandes assignées ET en attente de livraison
+            query = query
+                .eq("aidant_id", req.user.userId)
+                .in("statut", ["Confirmée", "Livrée"]);
         } 
         else if (req.user.role === "FAMILLE") {
-            const { data: patients, error } = await supabase
+            // ✅ Famille voit TOUTES ses commandes
+            const { data: patients } = await supabase
                 .from("patients")
                 .select("id")
                 .eq("famille_user_id", req.user.userId);
             
-            if (error || !patients || patients.length === 0) {
+            if (!patients || patients.length === 0) {
                 return res.json([]);
             }
             
             const patientIds = patients.map(p => p.id);
             query = query.in("patient_id", patientIds);
         }
+        // COORDINATEUR voit tout
 
         const { data, error } = await query.order("created_at", { ascending: false });
         if (error) throw error;
