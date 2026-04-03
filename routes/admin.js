@@ -19,7 +19,7 @@ router.post("/validate-member", middleware(['COORDINATEUR']), async (req, res) =
         // 1. ACTIVER LE PROFIL
         const { error: profileErr } = await supabase
             .from("profiles")
-            .update({ statut: 'ACTIF' })
+            .update({ statut_validation: 'ACTIF' })
             .eq("id", user_id);
 
         if (profileErr) throw profileErr;
@@ -28,7 +28,7 @@ router.post("/validate-member", middleware(['COORDINATEUR']), async (req, res) =
         if (role === 'FAMILLE') {
             const { error: patientErr } = await supabase
                 .from("patients")
-                .update({ statut: 'ACTIF' })
+                .update({ statut_validation: 'ACTIF' })
                 .eq("famille_user_id", user_id);
             
             if (patientErr) {
@@ -140,7 +140,7 @@ router.get("/pending-registrations", middleware(['COORDINATEUR']), async (req, r
                 id, nom, email, role, telephone, created_at,
                 patients:patients!famille_user_id (id, nom_complet, formule)
             `)
-            .eq("statut", "EN_ATTENTE");  // ← ICI : statut au lieu de statut_validation
+            .eq("statut_validation", "EN_ATTENTE");  // ← ICI : statut au lieu de statut_validation
 
         if (error) throw error;
         res.json(data);
