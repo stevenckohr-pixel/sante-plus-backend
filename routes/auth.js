@@ -459,11 +459,22 @@ router.put("/update-aidant-info", middleware(["AIDANT"]), async (req, res) => {
 router.put("/update-profile-full", middleware(), async (req, res) => {
     const { prenom, nom, email, telephone, adresse } = req.body;
     
+    // ✅ Correction : le champ 'nom' doit être le NOM DE FAMILLE uniquement
+    // Le prénom va dans la colonne 'prenom'
+    // Le nom complet = prenom + " " + nom
+    
     const nomComplet = `${prenom || ''} ${nom || ''}`.trim();
     
     const { error } = await supabase
         .from("profiles")
-        .update({ prenom, nom: nomComplet, email, telephone, adresse })
+        .update({ 
+            prenom: prenom,      // ← Prénom seul
+            nom: nom,            // ← Nom seul (pas le complet !)
+            nom_complet: nomComplet,  // ← Optionnel, pour affichage
+            email, 
+            telephone, 
+            adresse 
+        })
         .eq("id", req.user.userId);
     
     if (error) return res.status(500).json({ error: error.message });
