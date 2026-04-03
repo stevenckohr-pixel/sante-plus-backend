@@ -690,6 +690,9 @@ router.get("/geofence-alerts", middleware(['COORDINATEUR']), async (req, res) =>
 // ============================================================
 // 📍 4. RÉCUPÉRER TOUS LES DOMICILES PATIENTS
 // ============================================================
+// ============================================================
+// 📍 4. RÉCUPÉRER TOUS LES DOMICILES PATIENTS
+// ============================================================
 router.get("/patients-locations", middleware(['COORDINATEUR']), async (req, res) => {
     try {
         const { data, error } = await supabase
@@ -701,10 +704,10 @@ router.get("/patients-locations", middleware(['COORDINATEUR']), async (req, res)
                 lat,
                 lng,
                 formule,
-                statut,
+                statut_validation,
                 famille:famille_user_id (nom, email)
             `)
-            .eq("statut", "ACTIF")
+            .eq("statut_validation", "ACTIF")  // ← CHANGER statut → statut_validation
             .not("lat", "is", null)
             .not("lng", "is", null);
 
@@ -715,7 +718,6 @@ router.get("/patients-locations", middleware(['COORDINATEUR']), async (req, res)
         res.status(500).json({ error: err.message });
     }
 });
-
 // ============================================================
 // 📏 Fonction de calcul de distance (Haversine)
 // ============================================================
