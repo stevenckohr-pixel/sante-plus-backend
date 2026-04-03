@@ -6,6 +6,15 @@ const { sendPushNotification } = require("../utils");
 const multer = require("multer");
 const upload = multer({ storage: multer.memoryStorage() });
 
+
+onst upload = multer({ 
+    storage: multer.memoryStorage(),
+    limits: {
+        fileSize: 5 * 1024 * 1024, // 5MB max
+        fieldSize: 10 * 1024 * 1024 // 10MB pour les autres champs
+    }
+});
+
 /**
  * 💊 1. CRÉER UNE COMMANDE (Famille ou Coordinateur)
  */
