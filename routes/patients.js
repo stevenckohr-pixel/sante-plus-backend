@@ -144,9 +144,17 @@ router.put("/:id/update-pack", middleware(["FAMILLE", "COORDINATEUR"]), async (r
     }
   }
   
+  // ✅ Construire l'objet de mise à jour uniquement avec les colonnes qui existent
+  const updateData = {};
+  if (type_pack !== undefined) updateData.type_pack = type_pack;
+  if (montant_prevu !== undefined) updateData.montant_prevu = montant_prevu;
+  if (duree_abonnement_mois !== undefined) updateData.duree_abonnement_mois = duree_abonnement_mois;
+  
+  console.log("📝 Mise à jour pack:", updateData);
+  
   const { error } = await supabase
     .from("patients")
-    .update({ type_pack, montant_prevu, duree_abonnement_mois })
+    .update(updateData)
     .eq("id", id);
   
   if (error) return res.status(500).json({ error: error.message });
