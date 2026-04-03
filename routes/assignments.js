@@ -3,6 +3,7 @@ const router = express.Router();
 const supabase = require("../supabaseClient");
 const middleware = require("../middleware");
 const { sendPushNotification } = require("../utils");
+const { createNotification } = require("./notifications");
 
 /**
  * 📋 1. LISTER LES ASSIGNATIONS
