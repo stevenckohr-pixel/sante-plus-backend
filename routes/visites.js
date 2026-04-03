@@ -4,6 +4,8 @@ const supabase = require("../supabaseClient");
 const middleware = require("../middleware");
 const { sendPushNotification } = require("../utils");
 const { createNotification } = require("./notifications");
+const multer = require("multer");
+const upload = multer({ storage: multer.memoryStorage() });
 
 
 // Optionnel : logger la structure pour vérifier
@@ -118,7 +120,7 @@ router.post("/start", middleware(["AIDANT"]), async (req, res) => {
 // ============================================================
 // ⏹️ 2. TERMINER UNE VISITE (AVEC AUTO-FEED)
 // ============================================================
-router.post("/end", middleware(["AIDANT"]), async (req, res) => {
+router.post("/end", middleware(["AIDANT"]), upload.single('photo_visite'), async (req, res) => {
     const { visite_id, activites_faites, notes, gps_end, humeur } = req.body;
     const photoFile = req.files ? req.files.find((f) => f.fieldname === "photo_visite") : null;
 
