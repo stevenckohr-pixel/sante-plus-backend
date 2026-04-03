@@ -8,7 +8,6 @@ const middleware = require("../middleware");
  */
 router.get("/", middleware(["COORDINATEUR"]), async (req, res) => {
   try {
-    // On récupère les profils ayant le rôle AIDANT
     const { data, error } = await supabase
       .from("profiles")
       .select("*")
@@ -24,15 +23,13 @@ router.get("/", middleware(["COORDINATEUR"]), async (req, res) => {
 
 /**
  * 📈 2. VOIR LES STATS D'ACTIVITÉ D'UN AIDANT
+ * - Coordinateur : peut voir n'importe quel aidant
+ * - Aidant : ne peut voir que ses propres stats
  */
-// AVANT (seul coordinateur)
-router.get("/stats/:id", middleware(["COORDINATEUR"]), async (req, res) => {
-
-// APRÈS (coordinateur ET aidant pour voir ses propres stats)
 router.get("/stats/:id", middleware(["COORDINATEUR", "AIDANT"]), async (req, res) => {
     const aidantId = req.params.id;
     
-    // ✅ Vérifier que l'aidant ne voit que ses propres stats
+    // Vérifier que l'aidant ne voit que ses propres stats
     if (req.user.role === "AIDANT" && req.user.userId !== aidantId) {
         return res.status(403).json({ error: "Accès non autorisé à ces statistiques" });
     }
