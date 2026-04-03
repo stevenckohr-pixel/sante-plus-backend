@@ -8,7 +8,6 @@ const { createNotification } = require("./notifications");
 // ============================================================
 // ▶️ 1. DÉMARRER UNE VISITE
 // ============================================================
-// visites.js backend - Remplacer la route POST /start
 router.post("/start", middleware(["AIDANT"]), async (req, res) => {
     const { patient_id, gps_start } = req.body;
 
@@ -537,4 +536,201 @@ router.get("/live-position/:visite_id", middleware(["FAMILLE", "COORDINATEUR"]),
     }
 });
 
+
+
+
+
+// ============================================================
+// 📊 1. RÉCUPÉRER TOUS LES AIDANTS ACTIFS (Coordinateur)
+// ============================================================
+router.get("/active-aidants", middleware(['COORDINATEUR']), async (req, res) => {
+    try {
+        // Récupérer toutes les visites en cours
+        const { data: activeVisits, error } = await supabase
+            .from("visites")
+            .select(`
+                id,
+                statut,
+                alerte_geofence,
+                distance_max_constatee,
+                heure_debut,
+                patient:patients (
+                    id, 
+                    nom_complet, 
+                    adresse, 
+                    lat, 
+                    lng,
+                    rayon_geofence
+                ),
+                aidant:profiles!aidant_id (
+                    id, 
+                    nom, 
+                    email, 
+                    telephone, 
+                    photo_url
+                )
+            `)
+            .eq("statut", "En cours")
+            .order("heure_debut", { ascending: false });
+
+        if (error) throw error;
+
+        // Pour chaque visite, récupérer la dernière position
+        const result = await Promise.all((activeVisits || []).map(async (visit) => {
+            const { data: lastPos } = await supabase
+                .from("positions_live")
+                .select("lat, lng, accuracy, created_at")
+                .eq("visite_id", visit.id)
+                .order("created_at", { ascending: false })
+                .limit(1)
+                .maybeSingle();
+
+            // Calculer la distance au patient si les coordonnées existent
+            let distanceToPatient = null;
+            if (lastPos && visit.patient?.lat && visit.patient?.lng) {
+                distanceToPatient = calculateDistance(
+                    lastPos.lat, lastPos.lng,
+                    visit.patient.lat, visit.patient.lng
+                );
+            }
+
+            return {
+                ...visit,
+                last_position: lastPos || null,
+                distance_to_patient: distanceToPatient,
+                is_inside_geofence: visit.alerte_geofence === false,
+                last_update: lastPos?.created_at || null
+            };
+        }));
+
+        res.json(result);
+    } catch (err) {
+        console.error("❌ Erreur active-aidants:", err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ============================================================
+// 📜 2. HISTORIQUE DES POSITIONS D'UN AIDANT (Coordinateur)
+// ============================================================
+router.get("/aidant-history/:aidantId", middleware(['COORDINATEUR']), async (req, res) => {
+    const { aidantId } = req.params;
+    const { date, visite_id } = req.query;
+    
+    try {
+        let query = supabase
+            .from("positions_live")
+            .select(`
+                *,
+                visite:visites (
+                    id,
+                    patient:patients (nom_complet),
+                    heure_debut,
+                    heure_fin
+                )
+            `)
+            .eq("aidant_id", aidantId);
+        
+        // Filtrer par visite spécifique ou par date
+        if (visite_id) {
+            query = query.eq("visite_id", visite_id);
+        } else if (date) {
+            query = query
+                .gte("created_at", `${date}T00:00:00`)
+                .lte("created_at", `${date}T23:59:59`);
+        }
+        
+        const { data, error } = await query.order("created_at", { ascending: true });
+        
+        if (error) throw error;
+        res.json(data || []);
+    } catch (err) {
+        console.error("❌ Erreur aidant-history:", err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ============================================================
+// 🚨 3. RÉCUPÉRER TOUTES LES ALERTES GEOFENCE
+// ============================================================
+router.get("/geofence-alerts", middleware(['COORDINATEUR']), async (req, res) => {
+    try {
+        const { data, error } = await supabase
+            .from("visites")
+            .select(`
+                id,
+                alerte_geofence,
+                distance_max_constatee,
+                created_at,
+                patient:patients (
+                    id,
+                    nom_complet,
+                    adresse,
+                    lat,
+                    lng
+                ),
+                aidant:profiles!aidant_id (
+                    id,
+                    nom,
+                    telephone
+                )
+            `)
+            .eq("statut", "En cours")
+            .eq("alerte_geofence", true)
+            .order("created_at", { ascending: false });
+
+        if (error) throw error;
+        res.json(data || []);
+    } catch (err) {
+        console.error("❌ Erreur geofence-alerts:", err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ============================================================
+// 📍 4. RÉCUPÉRER TOUS LES DOMICILES PATIENTS
+// ============================================================
+router.get("/patients-locations", middleware(['COORDINATEUR']), async (req, res) => {
+    try {
+        const { data, error } = await supabase
+            .from("patients")
+            .select(`
+                id,
+                nom_complet,
+                adresse,
+                lat,
+                lng,
+                formule,
+                statut,
+                famille:famille_user_id (nom, email)
+            `)
+            .eq("statut", "ACTIF")
+            .not("lat", "is", null)
+            .not("lng", "is", null);
+
+        if (error) throw error;
+        res.json(data || []);
+    } catch (err) {
+        console.error("❌ Erreur patients-locations:", err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ============================================================
+// 📏 Fonction de calcul de distance (Haversine)
+// ============================================================
+function calculateDistance(lat1, lon1, lat2, lon2) {
+    const R = 6371e3;
+    const φ1 = lat1 * Math.PI / 180;
+    const φ2 = lat2 * Math.PI / 180;
+    const Δφ = (lat2 - lat1) * Math.PI / 180;
+    const Δλ = (lon2 - lon1) * Math.PI / 180;
+
+    const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+              Math.cos(φ1) * Math.cos(φ2) *
+              Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+    return R * c;
+}
 module.exports = router;
