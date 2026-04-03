@@ -123,7 +123,7 @@ router.post("/start", middleware(["AIDANT"]), async (req, res) => {
 // ============================================================
 router.post("/end", middleware(["AIDANT"]), upload.single('photo_visite'), async (req, res) => {
     const { visite_id, activites_faites, notes, gps_end, humeur } = req.body;
-    const photoFile = req.files ? req.files.find((f) => f.fieldname === "photo_visite") : null;
+    const photoFile = req.file;  // ← upload.single donne req.file, pas req.files
 
     if (!photoFile) return res.status(400).json({ error: "Photo obligatoire." });
 
@@ -171,14 +171,14 @@ router.post("/end", middleware(["AIDANT"]), upload.single('photo_visite'), async
             await sendPushNotification(
                 v.patient.famille_user_id,
                 "📸 Rapport de visite disponible",
-                `L'intervention pour ${v.patient.nom_complet} est terminée. Consultez le journal.`,
+                `L'intervention pour ${v.patient.nom_complet} est terminée.`,
                 "/#feed"
             );
             
             await createNotification(
                 v.patient.famille_user_id,
                 "📸 Nouveau rapport de visite",
-                `L'intervention pour ${v.patient.nom_complet} est terminée. Une photo est disponible.`,
+                `L'intervention est terminée. Une photo est disponible.`,
                 "visit",
                 "/#feed"
             );
@@ -190,7 +190,6 @@ router.post("/end", middleware(["AIDANT"]), upload.single('photo_visite'), async
         res.status(500).json({ error: err.message });
     }
 });
-
 // ============================================================
 // ✅ 3. VALIDER UNE VISITE (Coordinateur)
 // ============================================================
