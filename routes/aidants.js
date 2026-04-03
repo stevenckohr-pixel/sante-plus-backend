@@ -25,31 +25,37 @@ router.get("/", middleware(["COORDINATEUR"]), async (req, res) => {
 /**
  * 📈 2. VOIR LES STATS D'ACTIVITÉ D'UN AIDANT
  */
-/**
- * 📈 2. VOIR LES STATS D'ACTIVITÉ D'UN AIDANT
- */
+// AVANT (seul coordinateur)
 router.get("/stats/:id", middleware(["COORDINATEUR"]), async (req, res) => {
-  const aidantId = req.params.id;
-  try {
-    // ✅ Correction : utiliser la bonne colonne (statut au lieu de statut_validation)
-    const { data, error } = await supabase
-      .from("visites")
-      .select("id, statut")  // ← statut, pas statut_validation
-      .eq("aidant_id", aidantId);
 
-    if (error) throw error;
+// APRÈS (coordinateur ET aidant pour voir ses propres stats)
+router.get("/stats/:id", middleware(["COORDINATEUR", "AIDANT"]), async (req, res) => {
+    const aidantId = req.params.id;
+    
+    // ✅ Vérifier que l'aidant ne voit que ses propres stats
+    if (req.user.role === "AIDANT" && req.user.userId !== aidantId) {
+        return res.status(403).json({ error: "Accès non autorisé à ces statistiques" });
+    }
+    
+    try {
+        const { data, error } = await supabase
+            .from("visites")
+            .select("id, statut")
+            .eq("aidant_id", aidantId);
 
-    const total = data?.length || 0;
-    const valides = data?.filter((v) => v.statut === "Validé").length || 0;
+        if (error) throw error;
 
-    res.json({
-      total_visites: total,
-      taux_validation: total > 0 ? Math.round((valides / total) * 100) : 0,
-    });
-  } catch (err) {
-    console.error("❌ Erreur stats aidant:", err.message);
-    res.status(500).json({ error: err.message });
-  }
+        const total = data?.length || 0;
+        const valides = data?.filter((v) => v.statut === "Validé").length || 0;
+
+        res.json({
+            total_visites: total,
+            taux_validation: total > 0 ? Math.round((valides / total) * 100) : 0,
+        });
+    } catch (err) {
+        console.error("❌ Erreur stats aidant:", err.message);
+        res.status(500).json({ error: err.message });
+    }
 });
 
 module.exports = router;
