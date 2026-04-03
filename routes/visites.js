@@ -2,12 +2,12 @@ const express = require("express");
 const router = express.Router();
 const supabase = require("../supabaseClient");
 const middleware = require("../middleware");
-const { sendEmailAPI, sendPushNotification } = require("../utils");
+const { sendPushNotification } = require("../utils");
 const { createNotification } = require("./notifications");
 
-/**
- * ▶️ 1. DÉMARRER UNE VISITE
- */
+// ============================================================
+// ▶️ 1. DÉMARRER UNE VISITE
+// ============================================================
 router.post("/start", middleware(["AIDANT"]), async (req, res) => {
     const { patient_id, gps_start } = req.body;
 
@@ -64,15 +64,13 @@ router.post("/start", middleware(["AIDANT"]), async (req, res) => {
         }
 
         if (visite.patient && visite.patient.famille_user_id) {
-            // Notification push
-            sendPushNotification(
+            await sendPushNotification(
                 visite.patient.famille_user_id,
                 "🔔 Début d'intervention",
                 `L'intervenant vient d'arriver au domicile de ${visite.patient.nom_complet}.`,
                 "/#feed"
             );
 
-            // ✅ Notification dans la base (corrigée)
             await createNotification(
                 visite.patient.famille_user_id,
                 "🔔 Début d'intervention",
@@ -89,147 +87,122 @@ router.post("/start", middleware(["AIDANT"]), async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
-/**
- * ⏹️ 2. TERMINER UNE VISITE (AVEC AUTO-FEED)
- */
+
+// ============================================================
+// ⏹️ 2. TERMINER UNE VISITE (AVEC AUTO-FEED)
+// ============================================================
 router.post("/end", middleware(["AIDANT"]), async (req, res) => {
-  const { visite_id, activites_faites, notes, gps_end, humeur } = req.body;
-  const photoFile = req.files ? req.files.find((f) => f.fieldname === "photo_visite") : null;
+    const { visite_id, activites_faites, notes, gps_end, humeur } = req.body;
+    const photoFile = req.files ? req.files.find((f) => f.fieldname === "photo_visite") : null;
 
-  if (!photoFile) return res.status(400).json({ error: "Photo obligatoire." });
+    if (!photoFile) return res.status(400).json({ error: "Photo obligatoire." });
 
-  try {
-    // 1. Upload de la photo de preuve
-    const fileName = `visites/${visite_id}_${Date.now()}.jpg`;
-    await supabase.storage.from("preuves").upload(fileName, photoFile.buffer, { 
-        contentType: 'image/jpeg', 
-        upsert: true 
-    });
-    const { data: publicUrlData } = supabase.storage.from("preuves").getPublicUrl(fileName);
-    const photoUrl = publicUrlData.publicUrl;
+    try {
+        const fileName = `visites/${visite_id}_${Date.now()}.jpg`;
+        await supabase.storage.from("preuves").upload(fileName, photoFile.buffer, { 
+            contentType: 'image/jpeg', 
+            upsert: true 
+        });
+        const { data: publicUrlData } = supabase.storage.from("preuves").getPublicUrl(fileName);
+        const photoUrl = publicUrlData.publicUrl;
 
-    // 2. Mise à jour de la table 'visites'
-    const { data: v, error: updateError } = await supabase
-      .from("visites")
-      .update({
-        heure_fin: new Date(),
-        activites_faites: JSON.parse(activites_faites || "[]"),
-        notes,
-        humeur,
-        photo_url: photoUrl,
-        gps_end: gps_end,
-        statut: "En attente",  
-      })
-      .eq("id", visite_id)
-      .select(`*, patient:patients(nom_complet, famille_user_id)`)
-      .single();
+        const { data: v, error: updateError } = await supabase
+            .from("visites")
+            .update({
+                heure_fin: new Date(),
+                activites_faites: JSON.parse(activites_faites || "[]"),
+                notes,
+                humeur,
+                photo_url: photoUrl,
+                gps_end: gps_end,
+                statut: "En attente",  
+            })
+            .eq("id", visite_id)
+            .select(`*, patient:patients(nom_complet, famille_user_id)`)
+            .single();
 
-    if (updateError) throw updateError;
+        if (updateError) throw updateError;
 
-    // A. Insertion de la PHOTO dans le feed
-    await supabase.from("messages").insert([{
-        patient_id: v.patient_id,
-        sender_id: req.user.userId,
-        content: photoUrl,
-        is_photo: true
-    }]);
+        await supabase.from("messages").insert([{
+            patient_id: v.patient_id,
+            sender_id: req.user.userId,
+            content: photoUrl,
+            is_photo: true
+        }]);
 
-    // B. Insertion du RÉSUMÉ dans le feed
-    await supabase.from("messages").insert([{
-        patient_id: v.patient_id,
-        sender_id: req.user.userId,
-        content: `${humeur}|${notes}`,
-        is_photo: false
-    }]);
+        await supabase.from("messages").insert([{
+            patient_id: v.patient_id,
+            sender_id: req.user.userId,
+            content: `${humeur}|${notes}`,
+            is_photo: false
+        }]);
 
-    if (v.patient && v.patient.famille_user_id) {
-        sendPushNotification(
-                visite.patient.famille_user_id,
-            "📸 SPS : Rapport de visite disponible",
-            `L'intervention pour ${v.patient.nom_complet} est terminée. Consultez le journal.`,
-            "/#feed"
-        );
+        if (v.patient && v.patient.famille_user_id) {
+            await sendPushNotification(
+                v.patient.famille_user_id,
+                "📸 Rapport de visite disponible",
+                `L'intervention pour ${v.patient.nom_complet} est terminée. Consultez le journal.`,
+                "/#feed"
+            );
+            
+            await createNotification(
+                v.patient.famille_user_id,
+                "📸 Nouveau rapport de visite",
+                `L'intervention pour ${v.patient.nom_complet} est terminée. Une photo est disponible.`,
+                "visit",
+                "/#feed"
+            );
+        }
 
-        
-}
-4. Ajouter la notification dans la route /validate
-javascript
-if (statut === "Validé" && visite.patient.famille_user_id) {
-    sendPushNotification(
-        visite.patient.famille_user_id,
-        "✅ Bilan validé par la coordination",
-        `Le rapport pour ${visite.patient.nom_complet} a été certifié conforme.`,
-        "/#feed"
-    );
-    
-    await createNotification(
-        visite.patient.famille_user_id,
-        "✅ Visite validée",
-        `Le rapport de visite pour ${visite.patient.nom_complet} a été certifié conforme.`,
-        "visit",
-        "/#feed"
-    );
-}
-📋 RÉSUMÉ DES CORRECTIONS
-Route	Problème	Correction
-/start	Variable v inexistante	Remplacer par visite
-/start	Import manquant	Ajouter createNotification
-/end	Notification base manquante	Ajouter createNotification
-/validate	Notification base manquante	Ajouter createNotification
-Applique ces corrections et ton visites.js sera 100% fonctionnel ! 🚀
-
-
+        res.json({ status: "success" });
+    } catch (err) {
+        console.error("❌ Erreur fin de visite:", err.message);
+        res.status(500).json({ error: err.message });
     }
-
-    res.json({ status: "success" });
-  } catch (err) {
-    console.error("❌ Erreur fin de visite:", err.message);
-    res.status(500).json({ error: err.message });
-  }
 });
 
-/**
- * ✅ 3. VALIDER UNE VISITE (Coordinateur)
- */
+// ============================================================
+// ✅ 3. VALIDER UNE VISITE (Coordinateur)
+// ============================================================
 router.post("/validate", middleware(["COORDINATEUR"]), async (req, res) => {
-  const { visite_id, statut } = req.body;
+    const { visite_id, statut } = req.body;
 
-  try {
-    const { data: visite, error } = await supabase
-        .from("visites")
-        .update({ statut: statut })  
-        .eq("id", visite_id)
-        .select(`*, patient:patients(nom_complet, famille_user_id)`)
-        .single();
+    try {
+        const { data: visite, error } = await supabase
+            .from("visites")
+            .update({ statut: statut })  
+            .eq("id", visite_id)
+            .select(`*, patient:patients(nom_complet, famille_user_id)`)
+            .single();
 
-    if (error) throw error;
+        if (error) throw error;
 
-    if (statut === "Validé" && visite.patient.famille_user_id) {
-      sendPushNotification(
-        visite.patient.famille_user_id,
-        "✅ Bilan validé par la coordination",
-        `Le rapport pour ${visite.patient.nom_complet} a été certifié conforme.`,
-        "/#feed"
-      );
+        if (statut === "Validé" && visite.patient.famille_user_id) {
+            await sendPushNotification(
+                visite.patient.famille_user_id,
+                "✅ Bilan validé par la coordination",
+                `Le rapport pour ${visite.patient.nom_complet} a été certifié conforme.`,
+                "/#feed"
+            );
 
-    await createNotification(
-        visite.patient.famille_user_id,
-        "✅ Visite validée",
-        `Le rapport de visite pour ${visite.patient.nom_complet} a été certifié conforme.`,
-        "visit",
-        "/#feed"
-        );
+            await createNotification(
+                visite.patient.famille_user_id,
+                "✅ Visite validée",
+                `Le rapport de visite pour ${visite.patient.nom_complet} a été certifié conforme.`,
+                "visit",
+                "/#feed"
+            );
+        }
+
+        res.json({ status: "success" });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
     }
-
-    res.json({ status: "success" });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
 });
 
-/**
- * 📂 4. LIRE LES VISITES (Filtrage)
- */
+// ============================================================
+// 📂 4. LIRE LES VISITES (Filtrage)
+// ============================================================
 router.get("/", middleware(["COORDINATEUR", "AIDANT", "FAMILLE"]), async (req, res) => {
     try {
         let query = supabase.from("visites").select(`
@@ -253,20 +226,18 @@ router.get("/", middleware(["COORDINATEUR", "AIDANT", "FAMILLE"]), async (req, r
         const { data, error } = await query.order("heure_debut", { ascending: false });
         if (error) throw error;
         res.json(data || []);
-
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-/**
- * 🛰️ TRACKING GPS (Appelé par le mobile)
- */
+// ============================================================
+// 🛰️ TRACKING GPS
+// ============================================================
 router.post("/track", middleware(['AIDANT']), async (req, res) => {
     const { visite_id, lat, lng, accuracy } = req.body;
     
     try {
-        // 1. Enregistrer la position
         await supabase.from("positions_live").insert([{
             visite_id,
             aidant_id: req.user.userId,
@@ -276,7 +247,6 @@ router.post("/track", middleware(['AIDANT']), async (req, res) => {
             created_at: new Date()
         }]);
 
-        // 2. Récupérer les infos de la visite et du patient
         const { data: visite, error: visitError } = await supabase
             .from("visites")
             .select(`
@@ -295,13 +265,10 @@ router.post("/track", middleware(['AIDANT']), async (req, res) => {
             return res.sendStatus(200);
         }
 
-        // 3. Vérifier la géolocalisation par rapport au domicile du patient
         if (visite.patient && visite.patient.lat) {
             const distance = getDistance(lat, lng, visite.patient.lat, visite.patient.lng);
             const rayonAutorise = visite.patient.rayon_geofence || 100;
-            const isInside = distance <= rayonAutorise;
 
-            // Mettre à jour l'alerte geofence
             if (distance > rayonAutorise && !visite.alerte_geofence) {
                 await supabase
                     .from("visites")
@@ -317,18 +284,15 @@ router.post("/track", middleware(['AIDANT']), async (req, res) => {
                     .eq("id", visite_id);
             }
 
-            // 4. 🔔 NOTIFICATION D'ARRIVÉE (quand l'aidant entre dans le périmètre)
             const alreadyNotified = visite.notifie_arrivee;
-            const seuilNotification = 50; // 50 mètres pour déclencher la notification
+            const seuilNotification = 50;
             
             if (distance <= seuilNotification && !alreadyNotified && visite.patient.famille_user_id) {
-                // Marquer comme notifié
                 await supabase
                     .from("visites")
                     .update({ notifie_arrivee: true })
                     .eq("id", visite_id);
                 
-                // Envoyer la notification push à la famille
                 const message = `🩺 ${visite.aidant?.nom || "L'aidant"} est arrivé${distance < 20 ? ' devant le domicile' : ' dans le quartier'} de ${visite.patient.nom_complet}.`;
                 
                 await sendPushNotification(
@@ -346,7 +310,6 @@ router.post("/track", middleware(['AIDANT']), async (req, res) => {
                     "/#feed"
                 );
                 
-                // Ajouter un message automatique dans le feed
                 await supabase.from("messages").insert([{
                     patient_id: visite.patient_id,
                     sender_id: req.user.userId,
@@ -357,62 +320,20 @@ router.post("/track", middleware(['AIDANT']), async (req, res) => {
                 
                 console.log(`📢 Notification d'arrivée envoyée pour la visite ${visite_id}`);
             }
-            
-            // 5. 🔔 NOTIFICATION DE DÉPART (quand l'aidant quitte le périmètre après être entré)
-            const wasNotified = visite.notifie_arrivee;
-            const quittePerimetre = distance > rayonAutorise * 1.5; // 1.5x le rayon
-            
-            if (wasNotified && quittePerimetre && visite.patient.famille_user_id) {
-                // Ne pas renvoyer trop souvent (cooldown de 30 minutes)
-                const lastLeaveKey = `last_leave_${visite_id}`;
-                const lastLeave = await supabase
-                    .from("visite_events")
-                    .select("created_at")
-                    .eq("visite_id", visite_id)
-                    .eq("event_type", "leave")
-                    .order("created_at", { ascending: false })
-                    .limit(1)
-                    .maybeSingle();
-                
-                let shouldNotify = true;
-                if (lastLeave?.created_at) {
-                    const timeSinceLastLeave = Date.now() - new Date(lastLeave.created_at).getTime();
-                    if (timeSinceLastLeave < 30 * 60 * 1000) { // 30 minutes
-                        shouldNotify = false;
-                    }
-                }
-                
-                if (shouldNotify) {
-                    await supabase.from("visite_events").insert([{
-                        visite_id,
-                        event_type: "leave",
-                        distance: distance
-                    }]);
-                    
-                    await sendPushNotification(
-                        visite.patient.famille_user_id,
-                        "👋 Fin de visite",
-                        `${visite.aidant?.nom} a quitté le domicile de ${visite.patient.nom_complet}.`,
-                        "/#feed"
-                    );
-                }
-            }
         }
         
         res.sendStatus(200);
-        
     } catch (err) { 
         console.error("❌ Erreur tracking:", err.message);
         res.sendStatus(500); 
     }
 });
 
-/**
- * 📏 Calculer la distance entre deux points GPS (formule de Haversine)
- * Retourne la distance en mètres
- */
+// ============================================================
+// 📏 Calcul de distance (Haversine)
+// ============================================================
 function getDistance(lat1, lon1, lat2, lon2) {
-    const R = 6371e3; // Rayon de la Terre en mètres
+    const R = 6371e3;
     const φ1 = lat1 * Math.PI / 180;
     const φ2 = lat2 * Math.PI / 180;
     const Δφ = (lat2 - lat1) * Math.PI / 180;
@@ -423,11 +344,12 @@ function getDistance(lat1, lon1, lat2, lon2) {
               Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
-    return R * c; // Distance en mètres
+    return R * c;
 }
-/**
- * 📡 RADAR LIVE (Pour Coordinateur)
- */
+
+// ============================================================
+// 📡 RADAR LIVE (Coordinateur)
+// ============================================================
 router.get("/live-tracking", middleware(['COORDINATEUR']), async (req, res) => {
     try {
         const { data: activeVisits } = await supabase
@@ -457,20 +379,17 @@ router.get("/live-tracking", middleware(['COORDINATEUR']), async (req, res) => {
             };
         }));
         res.json(liveData.filter(d => d !== null));
-    } catch (e) { res.status(500).json({ error: e.message }); }
+    } catch (e) { 
+        res.status(500).json({ error: e.message }); 
+    }
 });
 
-
-
-
-/**
- * 🏠 POSITION ACTIVE POUR LA FAMILLE
- * Récupère la dernière position connue d'une visite en cours pour un patient donné
- */
+// ============================================================
+// 🏠 POSITION ACTIVE POUR LA FAMILLE
+// ============================================================
 router.get("/active/:patientId", middleware(["FAMILLE", "COORDINATEUR"]), async (req, res) => {
     const { patientId } = req.params;
 
-    // 🔒 Vérification que la famille a bien accès à ce patient
     if (req.user.role === "FAMILLE") {
         const { data: patient, error } = await supabase
             .from("patients")
@@ -485,7 +404,6 @@ router.get("/active/:patientId", middleware(["FAMILLE", "COORDINATEUR"]), async 
     }
 
     try {
-        // 1. Trouver la visite en cours pour ce patient
         const { data: visite, error: visiteError } = await supabase
             .from("visites")
             .select("id, aidant_id, alerte_geofence")
@@ -496,10 +414,9 @@ router.get("/active/:patientId", middleware(["FAMILLE", "COORDINATEUR"]), async 
             .maybeSingle();
 
         if (visiteError || !visite) {
-            return res.json({}); // Pas de visite en cours
+            return res.json({});
         }
 
-        // 2. Récupérer la dernière position connue
         const { data: lastPos, error: posError } = await supabase
             .from("positions_live")
             .select("lat, lng, created_at")
@@ -509,10 +426,9 @@ router.get("/active/:patientId", middleware(["FAMILLE", "COORDINATEUR"]), async 
             .maybeSingle();
 
         if (posError || !lastPos) {
-            return res.json({}); 
+            return res.json({});
         }
 
-        // 3. Récupérer le nom de l'aidant
         const { data: aidant, error: aidantError } = await supabase
             .from("profiles")
             .select("nom")
@@ -526,15 +442,15 @@ router.get("/active/:patientId", middleware(["FAMILLE", "COORDINATEUR"]), async 
             is_inside: !visite.alerte_geofence,
             last_update: lastPos.created_at
         });
-
     } catch (err) {
         console.error("❌ Erreur route /active/:patientId:", err.message);
         res.status(500).json({ error: err.message });
     }
 });
 
-
-
+// ============================================================
+// 📍 TRAJECTOIRE D'UNE VISITE
+// ============================================================
 router.get("/trajectory/:visite_id", middleware(['COORDINATEUR']), async (req, res) => {
     try {
         const { data, error } = await supabase
@@ -544,17 +460,18 @@ router.get("/trajectory/:visite_id", middleware(['COORDINATEUR']), async (req, r
             .order("created_at", { ascending: true });
         if (error) throw error;
         res.json(data);
-    } catch (e) { res.status(500).json({ error: e.message }); }
+    } catch (e) { 
+        res.status(500).json({ error: e.message }); 
+    }
 });
 
-/**
- * 📍 POSITION EN DIRECT POUR LA FAMILLE
- */
+// ============================================================
+// 📍 POSITION EN DIRECT POUR LA FAMILLE
+// ============================================================
 router.get("/live-position/:visite_id", middleware(["FAMILLE", "COORDINATEUR"]), async (req, res) => {
     const { visite_id } = req.params;
     
     try {
-        // Vérifier que la famille a accès à cette visite
         if (req.user.role === "FAMILLE") {
             const { data: visite } = await supabase
                 .from("visites")
@@ -567,7 +484,6 @@ router.get("/live-position/:visite_id", middleware(["FAMILLE", "COORDINATEUR"]),
             }
         }
         
-        // Récupérer la dernière position
         const { data: lastPos } = await supabase
             .from("positions_live")
             .select("lat, lng, created_at")
@@ -580,7 +496,6 @@ router.get("/live-position/:visite_id", middleware(["FAMILLE", "COORDINATEUR"]),
             return res.json({ hasPosition: false });
         }
         
-        // Récupérer les infos de l'aidant
         const { data: visite } = await supabase
             .from("visites")
             .select("aidant:profiles!aidant_id(nom, photo_url)")
@@ -595,7 +510,6 @@ router.get("/live-position/:visite_id", middleware(["FAMILLE", "COORDINATEUR"]),
             aidant_nom: visite?.aidant?.nom || "Intervenant",
             aidant_photo: visite?.aidant?.photo_url || null
         });
-        
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
