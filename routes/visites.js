@@ -5,6 +5,23 @@ const middleware = require("../middleware");
 const { sendPushNotification } = require("../utils");
 const { createNotification } = require("./notifications");
 
+
+// Optionnel : logger la structure pour vérifier
+(async () => {
+    const { data, error } = await supabase
+        .from("visites")
+        .select("planning_id")
+        .limit(1);
+    if (error) {
+        console.error("❌ Erreur vérification planning_id:", error);
+    } else {
+        console.log("✅ planning_id existe bien dans la table visites");
+    }
+})();
+
+// ============================================================
+// ▶️ 1. DÉMARRER UNE VISITE
+// ============================================================
 // ============================================================
 // ▶️ 1. DÉMARRER UNE VISITE
 // ============================================================
@@ -12,7 +29,7 @@ router.post("/start", middleware(["AIDANT"]), async (req, res) => {
     const { patient_id, gps_start } = req.body;
 
     try {
-        // ✅ Vérifier que l'aidant est assigné à ce patient
+        // Vérifier que l'aidant est assigné à ce patient
         const { data: planning, error: planningErr } = await supabase
             .from("planning")
             .select("id, date_prevue")
@@ -27,7 +44,7 @@ router.post("/start", middleware(["AIDANT"]), async (req, res) => {
             });
         }
 
-        // ✅ Vérifier qu'il n'y a pas déjà une visite en cours
+        // Vérifier qu'il n'y a pas déjà une visite en cours
         const { data: existingVisit, error: existingErr } = await supabase
             .from("visites")
             .select("id, statut")
@@ -44,7 +61,7 @@ router.post("/start", middleware(["AIDANT"]), async (req, res) => {
             });
         }
 
-        // ✅ Créer la visite
+        // Créer la visite
         const { data: visite, error } = await supabase
             .from("visites")
             .insert([{
@@ -58,9 +75,12 @@ router.post("/start", middleware(["AIDANT"]), async (req, res) => {
             .select(`*, patient:patients(nom_complet, famille_user_id), aidant:profiles!aidant_id(nom)`)
             .single();
 
-        if (error) throw error;
+        if (error) {
+            console.error("❌ Erreur insertion:", error);
+            throw error;
+        }
 
-        // ✅ Mettre à jour le planning
+        // Mettre à jour le planning
         if (planning.id) {
             await supabase
                 .from("planning")
@@ -68,7 +88,7 @@ router.post("/start", middleware(["AIDANT"]), async (req, res) => {
                 .eq("id", planning.id);
         }
 
-        // ✅ Notifier la famille
+        // Notifier la famille
         if (visite.patient && visite.patient.famille_user_id) {
             await sendPushNotification(
                 visite.patient.famille_user_id,
