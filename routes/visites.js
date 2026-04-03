@@ -560,7 +560,8 @@ router.get("/active-aidants", middleware(['COORDINATEUR']), async (req, res) => 
                     adresse, 
                     lat, 
                     lng,
-                    rayon_geofence
+                    rayon_geofence,
+                    statut_validation 
                 ),
                 aidant:profiles!aidant_id (
                     id, 
@@ -707,7 +708,7 @@ router.get("/patients-locations", middleware(['COORDINATEUR']), async (req, res)
                 statut_validation,
                 famille:famille_user_id (nom, email)
             `)
-            .eq("statut_validation", "ACTIF")  // ← CHANGER statut → statut_validation
+            .eq("statut_validation", "ACTIF")  /
             .not("lat", "is", null)
             .not("lng", "is", null);
 
