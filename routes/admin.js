@@ -70,7 +70,7 @@ function getDefaultEmailHtml(nom, role) {
         <div style="background-color: #F8FAFC; padding: 50px 20px; font-family: 'Helvetica Neue', sans-serif;">
             <div style="max-width: 600px; margin: auto; background: white; border-radius: 32px; overflow: hidden; box-shadow: 0 40px 100px rgba(0,0,0,0.08);">
                 <div style="background: #0F172A; padding: 40px; text-align: center;">
-                    <img src="https://res.cloudinary.com/dglwrrvh3/image/upload/v1774974945/heart-beat_tjb16u.png" style="width: 50px;">
+                    <img src="https://res.cloudinary.com/dglwrrvh3/image/upload/v1775257930/ChatGPT_Image_Jan_7_2026_at_11_58_26_PM_1_hrty2z.png" style="width: 50px;">
                     <h1 style="color: white; font-size: 16px; letter-spacing: 4px;">Santé Plus Services</h1>
                 </div>
                 <div style="padding: 60px 50px;">
@@ -100,7 +100,7 @@ function getEmailWithCustomMessage(nom, role, customMessage) {
         <div style="background-color: #F8FAFC; padding: 50px 20px; font-family: 'Helvetica Neue', sans-serif;">
             <div style="max-width: 600px; margin: auto; background: white; border-radius: 32px; overflow: hidden; box-shadow: 0 40px 100px rgba(0,0,0,0.08);">
                 <div style="background: #0F172A; padding: 40px; text-align: center;">
-                    <img src="https://res.cloudinary.com/dglwrrvh3/image/upload/v1774974945/heart-beat_tjb16u.png" style="width: 50px;">
+                    <img src="https://res.cloudinary.com/dglwrrvh3/image/upload/v1775257930/ChatGPT_Image_Jan_7_2026_at_11_58_26_PM_1_hrty2z.png" style="width: 50px;">
                     <h1 style="color: white; font-size: 16px; letter-spacing: 4px;">Santé Plus Services</h1>
                 </div>
                 <div style="padding: 60px 50px;">
