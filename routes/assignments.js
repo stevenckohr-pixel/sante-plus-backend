@@ -164,6 +164,15 @@ router.post("/assign", middleware(["COORDINATEUR"]), async (req, res) => {
             "/#planning"
         );
 
+
+        await createNotification(
+            aidant_id,
+            "📋 Nouvelle mission",
+            messageAidant,
+            "assignment",
+            "/#planning"
+        );
+
         // 🔔 Notifier la famille
         if (patient.famille_user_id) {
             sendPushNotification(
@@ -172,6 +181,14 @@ router.post("/assign", middleware(["COORDINATEUR"]), async (req, res) => {
                 messageFamille,
                 "/#patients"
             );
+
+            await createNotification(
+                    patient.famille_user_id,
+                    assignType === 'ponctuelle' ? "📅 Visite programmée" : "👨‍⚕️ Nouvel intervenant",
+                    messageFamille,
+                    "assignment",
+                    "/#patients"
+                );
         }
 
         res.json({ 
