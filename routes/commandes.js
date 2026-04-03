@@ -3,6 +3,8 @@ const router = express.Router();
 const supabase = require("../supabaseClient");
 const middleware = require("../middleware");
 const { sendPushNotification } = require("../utils");
+const multer = require("multer");
+const upload = multer({ storage: multer.memoryStorage() });
 
 /**
  * 💊 1. CRÉER UNE COMMANDE (Famille ou Coordinateur)
@@ -120,10 +122,19 @@ router.post("/confirm", middleware(["COORDINATEUR"]), async (req, res) => {
 /**
  * 📦 3. FINALISER LA LIVRAISON (Aidant)
  */
-router.post("/deliver", middleware(["AIDANT"]), async (req, res) => {
-    const { commande_id, photo_url } = req.body;
+/**
+ * 📦 3. FINALISER LA LIVRAISON (Aidant)
+ */
+router.post("/deliver", middleware(["AIDANT"]), upload.single('photo_livraison'), async (req, res) => {
+    const { commande_id } = req.body;
+    const photoFile = req.file;  // ← upload.single donne req.file
+
+    if (!photoFile) {
+        return res.status(400).json({ error: "Photo obligatoire" });
+    }
 
     try {
+        // Vérifier que l'aidant est bien assigné à cette commande
         const { data: commande, error: checkErr } = await supabase
             .from("commandes_meds")
             .select("id, aidant_id, patient_id")
@@ -138,10 +149,21 @@ router.post("/deliver", middleware(["AIDANT"]), async (req, res) => {
             return res.status(403).json({ error: "Vous n'êtes pas assigné à cette commande" });
         }
 
+        // Upload de la photo
+        const fileName = `commandes/${commande_id}_${Date.now()}.jpg`;
+        await supabase.storage.from("preuves").upload(fileName, photoFile.buffer, {
+            contentType: 'image/jpeg',
+            upsert: true
+        });
+        
+        const { data: urlData } = supabase.storage.from("preuves").getPublicUrl(fileName);
+        const photoUrl = urlData.publicUrl;
+
+        // Mettre à jour la commande
         const { data: cmd, error: errCmd } = await supabase
             .from("commandes_meds")
             .update({
-                photo_livraison: photo_url,
+                photo_livraison: photoUrl,
                 statut: "Livrée",
                 date_livraison: new Date()
             })
@@ -151,17 +173,19 @@ router.post("/deliver", middleware(["AIDANT"]), async (req, res) => {
 
         if (errCmd) throw errCmd;
 
+        // Ajouter dans le feed
         await supabase.from("messages").insert([{
             patient_id: cmd.patient_id,
             sender_id: req.user.userId,
-            content: photo_url,
+            content: photoUrl,
             is_photo: true,
             type_media: 'DOCUMENT',
             titre_media: `Reçu Pharmacie - ${cmd.patient.nom_complet}`
         }]);
 
+        // Notification à la famille
         if (cmd.patient && cmd.patient.famille_user_id) {
-            sendPushNotification(
+            await sendPushNotification(
                 cmd.patient.famille_user_id,
                 "📦 Médicaments livrés",
                 `Les médicaments pour ${cmd.patient.nom_complet} ont été livrés.`,
@@ -169,11 +193,15 @@ router.post("/deliver", middleware(["AIDANT"]), async (req, res) => {
             );
         }
 
-        res.json({ status: "success" });
+        res.json({ status: "success", message: "Livraison confirmée" });
+
     } catch (err) {
+        console.error("❌ Erreur livraison:", err.message);
         res.status(500).json({ error: err.message });
     }
 });
+
+
 
 /**
  * 📋 4. LISTER LES COMMANDES (Filtrage par rôle)
