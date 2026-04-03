@@ -19,7 +19,7 @@ router.post("/validate-member", middleware(['COORDINATEUR']), async (req, res) =
         // 1. ACTIVER LE PROFIL
         const { error: profileErr } = await supabase
             .from("profiles")
-            .update({ statut_validation: 'ACTIF' })
+            .update({ statut: 'ACTIF' })
             .eq("id", user_id);
 
         if (profileErr) throw profileErr;
@@ -28,7 +28,7 @@ router.post("/validate-member", middleware(['COORDINATEUR']), async (req, res) =
         if (role === 'FAMILLE') {
             const { error: patientErr } = await supabase
                 .from("patients")
-                .update({ statut_validation: 'ACTIF' })
+                .update({ statut: 'ACTIF' })
                 .eq("famille_user_id", user_id);
             
             if (patientErr) {
@@ -133,14 +133,14 @@ function getEmailWithCustomMessage(nom, role, customMessage) {
  */
 router.get("/pending-registrations", middleware(['COORDINATEUR']), async (req, res) => {
     try {
-        // On récupère les profils en attente
+        // ✅ Correction : utiliser "statut" au lieu de "statut_validation"
         const { data, error } = await supabase
             .from("profiles")
             .select(`
-                id, nom, email, role, telephone,
+                id, nom, email, role, telephone, created_at,
                 patients:patients!famille_user_id (id, nom_complet, formule)
             `)
-            .eq("statut_validation", "EN_ATTENTE");
+            .eq("statut", "EN_ATTENTE");  // ← ICI : statut au lieu de statut_validation
 
         if (error) throw error;
         res.json(data);
