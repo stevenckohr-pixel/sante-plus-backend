@@ -35,6 +35,8 @@ const aidantRoutes = require("./routes/aidants");
 const adminRoutes = require("./routes/admin");
 const startCronJobs = require("./cron");
 const assignmentRoutes = require("./routes/assignments");
+const notificationsRoutes = require("./routes/notifications");
+
 
 
 // --- BRANCHEMENT DES ROUTES ---
@@ -58,6 +60,8 @@ app.use("/api/planning", require("./routes/planning"));
 
 // --- LANCEMENT DES SYSTÈMES AUTOMATIQUES ---
 startCronJobs(); // Robot de facturation et relance
+app.use("/api/notifications", notificationsRoutes);
+
 
 // --- DÉMARRAGE DU SERVEUR ---
 const PORT = process.env.PORT || 4000;
