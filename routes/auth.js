@@ -39,8 +39,8 @@ router.post("/login", async (req, res) => {
       return res.status(404).json({ error: "Détails du profil introuvables. Contactez l'admin." });
     }
 
-    // C. Vérification du statut
-    if (profile.statut === 'EN_ATTENTE') {
+    // C. Vérification du statut_validation
+    if (profile.statut_validation === 'EN_ATTENTE') {
       return res.status(403).json({ error: "Votre compte est en attente de validation." });
     }
 
@@ -246,7 +246,7 @@ router.post("/register-family-patient", async (req, res) => {
             email: cleanEmail,
             adresse: ville_payeur,
             role: 'FAMILLE', 
-            statut: 'EN_ATTENTE'
+            statut_validation: 'EN_ATTENTE'
         }]);
 
         // Insertion dans patients
@@ -267,7 +267,7 @@ router.post("/register-family-patient", async (req, res) => {
             formule: formule || null,
             famille_user_id: auth.user.id, 
             statut_paiement: 'A jour', 
-            statut: 'EN_ATTENTE'
+            statut_validation: 'EN_ATTENTE'
         }]);
 
       const html = `
@@ -335,7 +335,7 @@ router.post("/create-member", middleware(["COORDINATEUR"]), async (req, res) => 
             competences: competences || [],
             disponibilites: disponibilites || null,
             role: role,
-            statut: 'ACTIF'
+            statut_validation: 'ACTIF'
         }]);
         if (profErr) throw profErr;
 
