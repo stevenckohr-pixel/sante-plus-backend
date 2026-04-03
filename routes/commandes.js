@@ -59,6 +59,7 @@ router.post("/add", middleware(["COORDINATEUR", "FAMILLE"]), async (req, res) =>
     }
 });
 
+ 
 /**
  * 💰 2. CONFIRMER LE PRIX & ASSIGNER (Coordinateur)
  */
@@ -66,6 +67,7 @@ router.post("/confirm", middleware(["COORDINATEUR"]), async (req, res) => {
     const { commande_id, aidant_id, prix_total } = req.body;
     
     try {
+        // Vérifier que l'aidant existe et a le bon rôle
         const { data: aidant, error: aidantErr } = await supabase
             .from("profiles")
             .select("id")
@@ -90,6 +92,7 @@ router.post("/confirm", middleware(["COORDINATEUR"]), async (req, res) => {
 
         if (error) throw error;
 
+        // Notification à la famille
         if (cmd.patient && cmd.patient.famille_user_id) {
             sendPushNotification(
                 cmd.patient.famille_user_id,
@@ -99,6 +102,7 @@ router.post("/confirm", middleware(["COORDINATEUR"]), async (req, res) => {
             );
         }
         
+        // Notification à l'aidant
         sendPushNotification(
             aidant_id,
             "📦 Nouvelle livraison",
@@ -108,6 +112,7 @@ router.post("/confirm", middleware(["COORDINATEUR"]), async (req, res) => {
 
         res.json({ status: "success" });
     } catch (err) {
+        console.error("❌ Erreur confirmation:", err.message);
         res.status(500).json({ error: err.message });
     }
 });
