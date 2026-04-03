@@ -3,6 +3,7 @@ const router = express.Router();
 const supabase = require("../supabaseClient");
 const middleware = require("../middleware");
 const { sendEmailAPI, sendPushNotification } = require("../utils");
+const { createNotification } = require("./notifications");
 
 /**
  * ▶️ 1. DÉMARRER UNE VISITE
@@ -72,6 +73,14 @@ router.post("/start", middleware(["AIDANT"]), async (req, res) => {
                 visite.patient.famille_user_id,
                 "🔔 SPS : Début d'intervention",
                 `L'intervenant vient d'arriver au domicile de ${visite.patient.nom_complet}.`,
+                "/#feed"
+            );
+
+            await createNotification(
+                v.patient.famille_user_id,
+                "📸 Nouveau rapport de visite",
+                `L'intervention pour ${v.patient.nom_complet} est terminée. Une photo est disponible.`,
+                "visit",
                 "/#feed"
             );
         }
@@ -291,6 +300,14 @@ router.post("/track", middleware(['AIDANT']), async (req, res) => {
                     visite.patient.famille_user_id,
                     "🚪 L'aidant arrive",
                     message,
+                    "/#feed"
+                );
+
+                await createNotification(
+                    visite.patient.famille_user_id,
+                    "🚪 L'aidant arrive",
+                    `${visite.aidant?.nom || "L'aidant"} est arrivé${distance < 20 ? ' au domicile' : ' dans le quartier'} de ${visite.patient.nom_complet}.`,
+                    "visit",
                     "/#feed"
                 );
                 
