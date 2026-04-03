@@ -58,7 +58,7 @@ router.post("/add", middleware(["COORDINATEUR"]), async (req, res) => {
             contact_urgence,
             formule,
             coordinateur_id: req.user.userId,
-            statut: 'ACTIF'  
+            statut_validation: 'ACTIF'  
         },
     ]);
 
