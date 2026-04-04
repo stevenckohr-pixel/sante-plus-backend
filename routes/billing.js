@@ -190,6 +190,109 @@ router.get("/webhook/status", middleware(["COORDINATEUR"]), async (req, res) => 
 
  
 
+
+
+// ============================================================
+// ⚡ 4. WEBHOOK FEDAPAY (avec gestion des durées)
+// ============================================================
+router.post("/webhook", async (req, res) => {
+  console.log("💰 [WEBHOOK] Signal reçu");
+  console.log("Headers:", req.headers);
+  console.log("Body:", req.body);
+  
+  const event = req.body;
+  const signature = req.headers['x-fedapay-signature'];
+  
+  // Vérification de la signature
+  if (!verifyWebhookSignature(signature, JSON.stringify(event))) {
+    console.error("❌ [WEBHOOK] Signature invalide");
+    return res.status(401).json({ error: "Signature invalide" });
+  }
+  
+  // Traitement du paiement approuvé (Checkout completed)
+  if (event.type === 'checkout.completed' || event.entity?.status === 'approved') {
+    const checkout = event.entity;
+    const abonnement_id = checkout.metadata?.abonnement_id;
+    const montant_recu = checkout.amount;
+    const reference = checkout.id;
+    const moyen_paiement = checkout.payment_method?.type || 'FEDAPAY';
+    
+    if (!abonnement_id) {
+      console.error("❌ [WEBHOOK] Pas d'abonnement_id");
+      return res.sendStatus(200);
+    }
+    
+    console.log(`✅ [FEDAPAY] Paiement confirmé - Facture: ${abonnement_id}, Montant: ${montant_recu} CFA`);
+    
+    try {
+      // Récupérer l'abonnement
+      const { data: abo, error: errAbo } = await supabase
+        .from("abonnements")
+        .select('*, patient:patients(id, nom_complet, famille_user_id, type_pack)')
+        .eq("id", abonnement_id)
+        .single();
+      
+      if (errAbo) throw errAbo;
+      
+      const paymentDate = new Date();
+      const durationMonths = getDurationFromPack(abo.patient?.type_pack || abo.type_pack);
+      const endDate = calculateSubscriptionEndDate(paymentDate, durationMonths, 5);
+      
+      // Mise à jour de la facture
+      await supabase
+        .from("abonnements")
+        .update({
+          montant_paye: montant_recu,
+          statut: "Payé",
+          date_paiement: paymentDate.toISOString(),
+          date_fin_abonnement: endDate.toISOString(),
+          duree_mois: durationMonths,
+          reference_paiement: reference,
+          mode_paiement: moyen_paiement
+        })
+        .eq("id", abonnement_id);
+      
+      if (abo && abo.patient) {
+        // Mise à jour du patient
+        await supabase
+          .from("patients")
+          .update({ 
+            statut_paiement: "A jour",
+            date_dernier_paiement: paymentDate.toISOString(),
+            date_fin_abonnement: endDate.toISOString(),
+            duree_abonnement_mois: durationMonths
+          })
+          .eq("id", abo.patient.id);
+        
+        const endDateFormatted = endDate.toLocaleDateString('fr-FR');
+        
+        if (abo.patient.famille_user_id) {
+          await sendPushNotification(
+            abo.patient.famille_user_id,
+            "💎 Abonnement activé",
+            `Paiement reçu pour ${abo.patient.nom_complet}. Abonnement valable ${durationMonths} mois jusqu'au ${endDateFormatted}.`,
+            "/#dashboard"
+          );
+
+          await createNotification(
+            abo.patient.famille_user_id,
+            "💎 Abonnement activé",
+            `Votre abonnement pour ${abo.patient.nom_complet} est actif jusqu'au ${endDateFormatted}.`,
+            "payment",
+            "/#dashboard"
+          );
+        }
+        
+        console.log(`✅ [WEBHOOK] Abonnement ${durationMonths} mois - Valable jusqu'au ${endDateFormatted}`);
+      }
+    } catch (err) {
+      console.error("❌ [WEBHOOK ERROR]:", err.message);
+    }
+  }
+  
+  res.sendStatus(200);
+});
+
 // ============================================================
 // 🔐 Vérification de la signature webhook (Version activée)
 // ============================================================
