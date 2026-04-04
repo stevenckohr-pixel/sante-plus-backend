@@ -3,29 +3,23 @@ const express = require("express");
 const cors = require("cors");
 const multer = require("multer");
 
-// ✅ Une seule déclaration de app
 const app = express();
 
-const upload = multer({ storage: multer.memoryStorage() });
-
-// Servir les fichiers statiques (images)
+// Servir les fichiers statiques
 app.use('/assets', express.static('assets'));
-// Augmenter la limite de taille pour les uploads
+
+// Limites augmentées
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-
-
-// Ajoute ceci pour les uploads plus gros
+// Timeout global
 app.use((req, res, next) => {
-    if (req.method === 'POST' && req.url.includes('/deliver')) {
-        // Pas de limite stricte pour cette route
-        req.setTimeout(60000); // 60 secondes
-    }
+    req.setTimeout(60000);
+    res.setTimeout(60000);
     next();
 });
 
-// --- CONFIGURATION DE SÉCURITÉ (CORS) ---
+// CORS
 app.use(cors({
     origin: [
         'https://stevenckohr-pixel.github.io',
@@ -37,11 +31,11 @@ app.use(cors({
     credentials: true
 }));
 
-// --- ROUTE DE SANTÉ (Health Check) ---
-app.get("/", (req, res) => res.send("🚀 Santé Plus Services API est opérationnelle !"));
+// Health check
+app.get("/", (req, res) => res.send("🚀 Santé Plus Services API opérationnelle"));
 
 // ============================================================
-// ✅ IMPORTS DES ROUTES
+// IMPORTS DES ROUTES
 // ============================================================
 const authRoutes = require("./routes/auth");
 const billingRoutes = require("./routes/billing");
@@ -58,7 +52,7 @@ const commandesRoutes = require("./routes/commandes");
 const planningRoutes = require("./routes/planning");
 
 // ============================================================
-// ✅ BRANCHEMENT DES ROUTES
+// BRANCHEMENT DES ROUTES (SANS upload.any() sur commandes)
 // ============================================================
 
 app.use("/api/auth", authRoutes);
@@ -69,24 +63,16 @@ app.use("/api/aidants", aidantRoutes);
 app.use("/api/patients", patientRoutes);
 app.use("/api/assignments", assignmentRoutes);
 app.use("/api/visites", visitesRoutes);
-app.use("/api/messages", upload.any(), messagesRoutes);
-app.use("/api/commandes", upload.any(), commandesRoutes);
+app.use("/api/messages", upload.any(), messagesRoutes);  
+app.use("/api/commandes", commandesRoutes);  
 app.use("/api/planning", planningRoutes);
 app.use("/api/notifications", notificationsRoutes);
 
 // Démarrer les tâches planifiées
 startCronJobs();
 
-// --- DÉMARRAGE DU SERVEUR ---
+// Démarrage
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
-  console.log(`
-  ==============================================
-  ✅ SERVEUR SANTÉ PLUS SERVICES EN LIGNE
-  🌍 Port : ${PORT}
-  🛠️ Environnement : Production / Render
-  🤖 Robot Cron : Activé
-  💳 FedaPay Webhook : Prêt
-  ==============================================
-  `);
+    console.log(`✅ Serveur démarré sur le port ${PORT}`);
 });
