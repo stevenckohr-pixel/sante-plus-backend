@@ -55,9 +55,12 @@ router.post("/login", async (req, res) => {
 
       await supabase.from("profiles").update({ reset_code: otpCode, reset_expires: expires }).eq("id", authData.user.id);
 
-           const emailHtml = `
+        const logoSrc = `${process.env.API_URL || 'https://sante-plus-backend-ux1n.onrender.com'}/assets/images/logo-general-icon.png`;
+
+      const emailHtml = `
       <div style="font-family: sans-serif; color: #1e293b; max-width: 500px; margin: auto; border: 1px solid #e2e8f0; border-radius: 16px;">
           <div style="background-color: #0f172a; padding: 20px; text-align: center;">
+              <img src="${logoSrc}" style="width: 40px; margin-bottom: 10px;">
               <h2 style="color: #ffffff; margin: 0;">SÉCURITÉ SANTÉ PLUS</h2>
           </div>
           <div style="padding: 30px; text-align: center;">
@@ -67,7 +70,7 @@ router.post("/login", async (req, res) => {
                   ${otpCode}
               </div>
           </div>
-      </div>`;     
+      </div>`;  
 
 
       await sendEmailAPI(email, "Code de sécurité Santé Plus", emailHtml);
@@ -156,19 +159,28 @@ router.all("/request-password-reset", async (req, res) => {
       .maybeSingle();
   
     if (profile) {
-      const html = `
-        <div style="font-family: sans-serif; color: #1e293b; padding: 20px;">
-            <h2>Réinitialisation de mot de passe</h2>
+if (profile) {
+  const logoSrc = `${process.env.API_URL || 'https://sante-plus-backend-ux1n.onrender.com'}/assets/images/logo-general-icon.png`;
+  
+  const html = `
+    <div style="font-family: sans-serif; color: #1e293b; max-width: 500px; margin: auto; border: 1px solid #e2e8f0; border-radius: 16px;">
+        <div style="background-color: #0f172a; padding: 20px; text-align: center;">
+            <img src="${logoSrc}" style="width: 40px; margin-bottom: 10px;">
+            <h2 style="color: #ffffff; margin: 0; font-size: 16px;">SANTÉ PLUS SERVICES</h2>
+        </div>
+        <div style="padding: 30px; text-align: center;">
+            <h2 style="color: #1e293b;">Réinitialisation</h2>
             <p>Bonjour <b>${profile.nom}</b>,</p>
             <p>Voici votre code de vérification pour changer votre mot de passe :</p>
-            <div style="background: #f1f5f9; padding: 15px; font-size: 24px; font-weight: 900; letter-spacing: 5px; color: #2563eb; text-align: center; border-radius: 10px;">
+            <div style="background: #f1f5f9; padding: 15px; margin: 20px 0; font-size: 28px; font-weight: 900; letter-spacing: 8px; color: #2563eb; text-align: center; border-radius: 10px;">
                 ${code}
             </div>
             <p style="font-size: 12px; color: #64748b;">Ce code expirera dans 15 minutes.</p>
-        </div>`;
-  
-      await sendEmailAPI(email, "Réinitialisation - Santé Plus", html);
-    }
+        </div>
+    </div>`;
+
+  await sendEmailAPI(email, "Réinitialisation - Santé Plus", html);
+}
   
     // On répond succès même si l'email n'existe pas (Sécurité anti-scan)
     return res.json({ status: "success", message: "Procédure lancée." });
@@ -291,15 +303,24 @@ router.post("/register-family-patient", async (req, res) => {
         }
         console.log("✅ Patient créé:", patientResult);
 
-        // Email de confirmation
+                // Email de confirmation
+        const isMaman = formule === 'MATERNITE' || (req.body.categorie === 'MAMAN_BEBE');
+        const logoSrc = isMaman 
+            ? `${process.env.API_URL || 'https://sante-plus-backend-ux1n.onrender.com'}/assets/images/logo-maman-text.png`
+            : `${process.env.API_URL || 'https://sante-plus-backend-ux1n.onrender.com'}/assets/images/logo-general-text.png`;
+        
+        // Email de confirmation avec logo
         const html = `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto;">
+                <div style="text-align: center; margin-bottom: 20px;">
+                    <img src="${logoSrc}" style="width: 100px; height: auto;">
+                </div>
                 <h2 style="color: #10B981;">Bienvenue chez Santé Plus !</h2>
                 <p>Bonjour ${nomCompletFamille},</p>
                 <p>Nous avons bien reçu votre demande d'admission pour le suivi de <strong>${nomCompletPatient}</strong>.</p>
                 <p>Un coordinateur va valider votre dossier sous 24h.</p>
                 <hr>
-                <p style="font-size: 12px;">Santé Plus Services - Bénin</p>
+                <p style="font-size: 12px; color: #64748B;">Santé Plus Services - Bénin</p>
             </div>
         `;
         await sendEmailAPI(cleanEmail, "Votre demande d'inscription - Santé Plus", html);
@@ -356,31 +377,33 @@ router.post("/create-member", middleware(["COORDINATEUR"]), async (req, res) => 
 
         // 3. ENVOI DE L'EMAIL
         const nomComplet = `${prenom || ''} ${nom}`.trim();
-        const emailHtml = `
-            <div style="background-color: #F8FAFC; padding: 40px; font-family: sans-serif;">
-                <div style="max-width: 600px; margin: auto; background: white; border-radius: 24px; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.05);">
-                    <div style="background: #0F172A; padding: 30px; text-align: center;">
-                        <h1 style="color: white; margin: 0; font-size: 18px; letter-spacing: 2px;">SANTÉ PLUS SERVICES</h1>
-                    </div>
-                    <div style="padding: 40px;">
-                        <h2 style="color: #0F172A; font-size: 22px;">Bienvenue dans l'équipe !</h2>
-                        <p style="color: #64748B;">Bonjour <b>${nomComplet}</b>, votre compte ${role} a été créé avec succès.</p>
-                        
-                        <div style="background: #F1F5F9; border-left: 4px solid #10B981; padding: 20px; border-radius: 12px; margin: 25px 0;">
-                            <p style="margin: 0; color: #64748B; font-size: 11px; text-transform: uppercase; font-weight: bold;">Vos identifiants de connexion</p>
-                            <p style="margin: 10px 0 5px 0; font-size: 15px;">Email : <b>${email}</b></p>
-                            <p style="margin: 0; font-size: 15px;">Mot de passe : <b style="color: #10B981;">${password}</b></p>
-                        </div>
-                        
-                        ${adresse ? `<p style="font-size: 12px; color: #64748B;">📍 Adresse: ${adresse}</p>` : ''}
-                        ${competences?.length ? `<p style="font-size: 12px; color: #64748B;">🩺 Compétences: ${competences.join(', ')}</p>` : ''}
-                        
-                        <a href="https://stevenckohr-pixel.github.io/sante-plus-frontend/" style="display: block; background: #0F172A; color: white; padding: 15px; text-align: center; text-decoration: none; border-radius: 12px; font-weight: bold;">Accéder à mon espace</a>
-                    </div>
-                </div>
-            </div>
-        `;
+     const logoSrc = `${process.env.API_URL || 'https://sante-plus-backend-ux1n.onrender.com'}/assets/images/logo-general-text.png`;
 
+const emailHtml = `
+    <div style="background-color: #F8FAFC; padding: 40px; font-family: sans-serif;">
+        <div style="max-width: 600px; margin: auto; background: white; border-radius: 24px; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.05);">
+            <div style="background: #0F172A; padding: 30px; text-align: center;">
+                <img src="${logoSrc}" style="width: 60px; margin-bottom: 10px;">
+                <h1 style="color: white; margin: 0; font-size: 18px; letter-spacing: 2px;">SANTÉ PLUS SERVICES</h1>
+            </div>
+            <div style="padding: 40px;">
+                <h2 style="color: #0F172A; font-size: 22px;">Bienvenue dans l'équipe !</h2>
+                <p style="color: #64748B;">Bonjour <b>${nomComplet}</b>, votre compte ${role} a été créé avec succès.</p>
+                
+                <div style="background: #F1F5F9; border-left: 4px solid #10B981; padding: 20px; border-radius: 12px; margin: 25px 0;">
+                    <p style="margin: 0; color: #64748B; font-size: 11px; text-transform: uppercase; font-weight: bold;">Vos identifiants de connexion</p>
+                    <p style="margin: 10px 0 5px 0; font-size: 15px;">Email : <b>${email}</b></p>
+                    <p style="margin: 0; font-size: 15px;">Mot de passe : <b style="color: #10B981;">${password}</b></p>
+                </div>
+                
+                ${adresse ? `<p style="font-size: 12px; color: #64748B;">📍 Adresse: ${adresse}</p>` : ''}
+                ${competences?.length ? `<p style="font-size: 12px; color: #64748B;">🩺 Compétences: ${competences.join(', ')}</p>` : ''}
+                
+                <a href="https://stevenckohr-pixel.github.io/sante-plus-frontend/" style="display: block; background: #0F172A; color: white; padding: 15px; text-align: center; text-decoration: none; border-radius: 12px; font-weight: bold;">Accéder à mon espace</a>
+            </div>
+        </div>
+    </div>
+`;
         try {
             await sendEmailAPI(email, "Vos accès collaborateurs - Santé Plus", emailHtml);
             console.log("✅ Mail RH envoyé avec succès !");
