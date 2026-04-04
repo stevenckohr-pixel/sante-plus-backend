@@ -107,8 +107,9 @@ router.post("/pay", middleware(["COORDINATEUR"]), async (req, res) => {
   }
 });
 
+
 // ============================================================
-// 💳 3. GÉNÉRER UN LIEN FEDAPAY
+// 💳 3. GÉNÉRER UN LIEN FEDAPAY (Version corrigée)
 // ============================================================
 router.post("/generate-payment", middleware(["FAMILLE"]), async (req, res) => {
   const { abonnement_id, montant, email_client } = req.body;
@@ -121,19 +122,17 @@ router.post("/generate-payment", middleware(["FAMILLE"]), async (req, res) => {
   }
 
   try {
-    // ✅ Nouvelle façon de créer une transaction avec checkout
+    // ✅ Utiliser l'API checkout de FedaPay v2
     const response = await axios.post(
-      "https://api.fedapay.com/v1/transactions",
+      "https://api.fedapay.com/v1/checkouts",
       {
-        description: `Santé Plus - Abonnement #${abonnement_id?.substring(0, 8)}`,
         amount: montant,
-        currency: { iso: "XOF" },
+        currency: "XOF",
+        description: `Santé Plus - Abonnement #${abonnement_id?.substring(0, 8)}`,
         callback_url: "https://stevenckohr-pixel.github.io/sante-plus-frontend/#billing?status=success",
-        return_url: "https://stevenckohr-pixel.github.io/sante-plus-frontend/#billing",
-        metadata: { abonnement_id: abonnement_id },
-        customer: { email: email_client || "client@santeplus.bj" },
-        // ✅ IMPORTANT : Forcer le mode checkout
-        mode: "checkout"
+        customer: { 
+          email: email_client || "client@santeplus.bj" 
+        }
       },
       {
         headers: { 
@@ -144,25 +143,15 @@ router.post("/generate-payment", middleware(["FAMILLE"]), async (req, res) => {
       }
     );
 
-    const transaction = response.data.transaction || response.data;
+    // La réponse contient directement l'URL
+    const checkout = response.data;
     
-    console.log("📦 Réponse FedaPay:", JSON.stringify(transaction, null, 2));
+    console.log("📦 Réponse FedaPay Checkout:", JSON.stringify(checkout, null, 2));
     
-    // ✅ FedaPay v1.1 : l'URL est dans transaction.payment_url
-    let paymentUrl = transaction.payment_url;
-    
-    // ✅ Fallback pour l'ancienne version
-    if (!paymentUrl && transaction.url) {
-      paymentUrl = transaction.url;
-    }
-    
-    // ✅ Alternative : créer un token checkout
-    if (!paymentUrl && transaction.token) {
-      paymentUrl = `https://checkout.fedapay.com/${transaction.token}`;
-    }
+    let paymentUrl = checkout.url || checkout.checkout_url;
     
     if (!paymentUrl) {
-      console.error("❌ Aucune URL trouvée dans la réponse:", transaction);
+      console.error("❌ Aucune URL trouvée dans la réponse");
       throw new Error("Pas d'URL de paiement reçue");
     }
 
