@@ -11,8 +11,8 @@ const upload = multer({ storage: multer.memoryStorage() });
 // Servir les fichiers statiques (images)
 app.use('/assets', express.static('assets'));
 // Augmenter la limite de taille pour les uploads
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ limit: '10mb', extended: true }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // --- CONFIGURATION DE SÉCURITÉ (CORS) ---
 app.use(cors({
