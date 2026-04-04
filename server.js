@@ -5,6 +5,9 @@ const multer = require("multer");
 
 const app = express();
 
+// ✅ Définir upload pour les routes qui en ont besoin
+const upload = multer({ storage: multer.memoryStorage() });
+
 // Servir les fichiers statiques
 app.use('/assets', express.static('assets'));
 
@@ -52,7 +55,7 @@ const commandesRoutes = require("./routes/commandes");
 const planningRoutes = require("./routes/planning");
 
 // ============================================================
-// BRANCHEMENT DES ROUTES (SANS upload.any() sur commandes)
+// BRANCHEMENT DES ROUTES
 // ============================================================
 
 app.use("/api/auth", authRoutes);
@@ -63,8 +66,8 @@ app.use("/api/aidants", aidantRoutes);
 app.use("/api/patients", patientRoutes);
 app.use("/api/assignments", assignmentRoutes);
 app.use("/api/visites", visitesRoutes);
-app.use("/api/messages", upload.any(), messagesRoutes);  
-app.use("/api/commandes", commandesRoutes);  
+app.use("/api/messages", upload.any(), messagesRoutes); // messages a besoin de upload
+app.use("/api/commandes", commandesRoutes); // commandes gère son propre upload
 app.use("/api/planning", planningRoutes);
 app.use("/api/notifications", notificationsRoutes);
 
