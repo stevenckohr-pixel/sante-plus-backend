@@ -108,8 +108,9 @@ router.post("/pay", middleware(["COORDINATEUR"]), async (req, res) => {
 });
 
 
+
 // ============================================================
-// 💳 3. GÉNÉRER UN LIEN FEDAPAY (Version définitive)
+// 💳 3. GÉNÉRER UN LIEN FEDAPAY (Version simplifiée)
 // ============================================================
 router.post("/generate-payment", middleware(["FAMILLE"]), async (req, res) => {
   const { abonnement_id, montant, email_client } = req.body;
@@ -122,38 +123,16 @@ router.post("/generate-payment", middleware(["FAMILLE"]), async (req, res) => {
   }
 
   try {
-    // 1. Créer ou récupérer le customer
-    let customerId = null;
-    try {
-      const customerResponse = await axios.post(
-        "https://api.fedapay.com/v1/customers",
-        {
-          email: email_client || "client@santeplus.bj",
-          firstname: "Client",
-          lastname: "Santé Plus"
-        },
-        {
-          headers: { 
-            Authorization: `Bearer ${process.env.FEDAPAY_SECRET_KEY}`,
-            "Content-Type": "application/json"
-          }
-        }
-      );
-      customerId = customerResponse.data.id;
-      console.log("✅ Customer créé:", customerId);
-    } catch (customerErr) {
-      // Si le customer existe déjà, on ignore l'erreur
-      console.log("ℹ️ Customer existant ou erreur:", customerErr.response?.data?.message || customerErr.message);
-    }
-    
-    // 2. Créer la transaction
-    const transactionResponse = await axios.post(
+    // ✅ Version simplifiée - sans création de customer
+    const response = await axios.post(
       "https://api.fedapay.com/v1/transactions",
       {
         amount: montant,
         currency: "XOF",
-        description: `Santé Plus - Abonnement #${abonnement_id?.substring(0, 8)}`,
-        customer_id: customerId,
+        description: `Santé Plus - Abonnement`,
+        customer: {
+          email: email_client || "client@santeplus.bj"
+        },
         callback_url: "https://stevenckohr-pixel.github.io/sante-plus-frontend/#billing?status=success",
         return_url: "https://stevenckohr-pixel.github.io/sante-plus-frontend/#billing"
       },
@@ -165,10 +144,10 @@ router.post("/generate-payment", middleware(["FAMILLE"]), async (req, res) => {
       }
     );
     
-    const transaction = transactionResponse.data;
+    const transaction = response.data;
     console.log("✅ Transaction créée:", transaction.id);
     
-    // 3. Créer un checkout token pour générer l'URL de paiement
+    // Créer le token de checkout
     const tokenResponse = await axios.post(
       "https://api.fedapay.com/v1/checkout/tokens",
       {
@@ -182,26 +161,9 @@ router.post("/generate-payment", middleware(["FAMILLE"]), async (req, res) => {
       }
     );
     
-    const token = tokenResponse.data.token;
-    const paymentUrl = `https://checkout.fedapay.com/${token}`;
+    const paymentUrl = `https://checkout.fedapay.com/${tokenResponse.data.token}`;
     
     console.log("✅ Lien de paiement généré:", paymentUrl);
-    
-    // 4. Stocker le token dans la transaction (optionnel)
-    await axios.put(
-      `https://api.fedapay.com/v1/transactions/${transaction.id}`,
-      {
-        metadata: { 
-          ...transaction.metadata,
-          checkout_token: token,
-          abonnement_id: abonnement_id 
-        }
-      },
-      {
-        headers: { Authorization: `Bearer ${process.env.FEDAPAY_SECRET_KEY}` }
-      }
-    );
-    
     res.json({ url: paymentUrl });
     
   } catch (err) {
@@ -210,8 +172,6 @@ router.post("/generate-payment", middleware(["FAMILLE"]), async (req, res) => {
     let errorMessage = "Impossible de générer le lien de paiement";
     if (err.response?.data?.errors) {
       errorMessage = err.response.data.errors.map(e => e.message).join(", ");
-    } else if (err.code === 'ECONNABORTED') {
-      errorMessage = "Délai dépassé, veuillez réessayer";
     }
     
     res.status(500).json({ error: errorMessage });
