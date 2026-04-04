@@ -285,8 +285,9 @@ router.post("/register-family-patient", async (req, res) => {
             notes_medicales: notes_medicales || null,
             formule: formule || null,
             famille_user_id: auth.user.id,
-            statut_paiement: 'A jour', 
-            statut_validation: 'EN_ATTENTE'
+            statut_paiement: 'A jour',
+            statut_validation: 'EN_ATTENTE',
+            categorie_service: req.body.categorie || 'SENIOR'  
         };
         
         console.log("📦 Données patient:", JSON.stringify(patientData, null, 2));
