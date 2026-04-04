@@ -61,19 +61,28 @@ router.post("/validate-member", middleware(['COORDINATEUR']), async (req, res) =
 });
 
 // Email par défaut
-function getDefaultEmailHtml(nom, role) {
+function getEmailWithCustomMessage(nom, role, customMessage) {
     const roleText = role === 'FAMILLE' 
         ? "Vous pouvez dès à présent suivre le journal de soins de votre proche."
         : "Vous pouvez maintenant consulter votre planning d'interventions.";
+
+    const logoSrc = `${process.env.API_URL || 'https://sante-plus-backend-ux1n.onrender.com'}/assets/images/logo-general-text.png`;
 
     return `
         <div style="background-color: #F8FAFC; padding: 50px 20px; font-family: 'Helvetica Neue', sans-serif;">
             <div style="max-width: 600px; margin: auto; background: white; border-radius: 32px; overflow: hidden; box-shadow: 0 40px 100px rgba(0,0,0,0.08);">
                 <div style="background: #0F172A; padding: 40px; text-align: center;">
-                    <img src="https://res.cloudinary.com/dglwrrvh3/image/upload/v1775257930/ChatGPT_Image_Jan_7_2026_at_11_58_26_PM_1_hrty2z.png" style="width: 50px;">
+                    <img src="${logoSrc}" style="width: 60px;">
                     <h1 style="color: white; font-size: 16px; letter-spacing: 4px;">Santé Plus Services</h1>
                 </div>
                 <div style="padding: 60px 50px;">
+                    <div style="background: #FEF3C7; border-left: 4px solid #F59E0B; padding: 20px; border-radius: 12px; margin-bottom: 30px;">
+                        <p style="color: #92400E; font-size: 14px; margin: 0; font-style: italic;">
+                            📝 <strong>Message du coordinateur :</strong><br>
+                            ${customMessage.replace(/\n/g, '<br>')}
+                        </p>
+                    </div>
+                    
                     <h2 style="color: #0F172A; font-size: 24px;">Compte Activé !</h2>
                     <p style="color: #64748B;">Bonjour <b>${nom}</b>,</p>
                     <p style="color: #64748B;">Votre compte a été activé avec succès.</p>
@@ -89,18 +98,19 @@ function getDefaultEmailHtml(nom, role) {
         </div>
     `;
 }
-
 // Email avec message personnalisé (le message s'affiche EN HAUT)
 function getEmailWithCustomMessage(nom, role, customMessage) {
     const roleText = role === 'FAMILLE' 
         ? "Vous pouvez dès à présent suivre le journal de soins de votre proche."
         : "Vous pouvez maintenant consulter votre planning d'interventions.";
 
+    const logoSrc = `${process.env.API_URL || 'https://sante-plus-backend-ux1n.onrender.com'}/assets/images/logo-general-text.png`;
+
     return `
         <div style="background-color: #F8FAFC; padding: 50px 20px; font-family: 'Helvetica Neue', sans-serif;">
             <div style="max-width: 600px; margin: auto; background: white; border-radius: 32px; overflow: hidden; box-shadow: 0 40px 100px rgba(0,0,0,0.08);">
                 <div style="background: #0F172A; padding: 40px; text-align: center;">
-                    <img src="https://res.cloudinary.com/dglwrrvh3/image/upload/v1775257930/ChatGPT_Image_Jan_7_2026_at_11_58_26_PM_1_hrty2z.png" style="width: 50px;">
+                    <img src="${logoSrc}" style="width: 60px;">
                     <h1 style="color: white; font-size: 16px; letter-spacing: 4px;">Santé Plus Services</h1>
                 </div>
                 <div style="padding: 60px 50px;">
@@ -133,14 +143,13 @@ function getEmailWithCustomMessage(nom, role, customMessage) {
  */
 router.get("/pending-registrations", middleware(['COORDINATEUR']), async (req, res) => {
     try {
-        // ✅ Correction : utiliser "statut" au lieu de "statut_validation"
         const { data, error } = await supabase
             .from("profiles")
             .select(`
                 id, nom, email, role, telephone, created_at,
                 patients:patients!famille_user_id (id, nom_complet, formule)
             `)
-            .eq("statut_validation", "EN_ATTENTE");  // ← ICI : statut au lieu de statut_validation
+            .eq("statut_validation", "EN_ATTENTE");  // 
 
         if (error) throw error;
         res.json(data);
