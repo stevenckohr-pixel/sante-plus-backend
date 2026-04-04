@@ -4,11 +4,24 @@ const supabase = require("../supabaseClient");
 const middleware = require("../middleware");
 const { sendPushNotification } = require("../utils");
 const multer = require("multer");
+
 const upload = multer({ 
     storage: multer.memoryStorage(),
     limits: {
         fileSize: 10 * 1024 * 1024, // 10MB
-        fieldSize: 10 * 1024 * 1024  // 10MB
+        fieldSize: 10 * 1024 * 1024, // 10MB
+        fields: 10,
+        files: 1,
+        parts: 20
+    },
+    // Filtrer les types de fichiers
+    fileFilter: (req, file, cb) => {
+        const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+        if (allowedTypes.includes(file.mimetype)) {
+            cb(null, true);
+        } else {
+            cb(new Error('Type de fichier non supporté'), false);
+        }
     }
 });
 
