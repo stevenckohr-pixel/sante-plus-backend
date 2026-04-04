@@ -158,7 +158,6 @@ router.all("/request-password-reset", async (req, res) => {
       .select("nom")
       .maybeSingle();
   
-    if (profile) {
 if (profile) {
   const logoSrc = `${process.env.API_URL || 'https://sante-plus-backend-ux1n.onrender.com'}/assets/images/logo-general-icon.png`;
   
