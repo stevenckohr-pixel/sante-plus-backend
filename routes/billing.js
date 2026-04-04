@@ -109,33 +109,33 @@ router.post("/pay", middleware(["COORDINATEUR"]), async (req, res) => {
 
 
 
+
 // ============================================================
-// 💳 3. GÉNÉRER UN LIEN FEDAPAY (Version simplifiée)
-// ============================================================
-// ============================================================
-// 💳 3. GÉNÉRER UN LIEN FEDAPAY (Version corrigée)
+// 💳 3. GÉNÉRER UN LIEN FEDAPAY CHECKOUT
 // ============================================================
 router.post("/generate-payment", middleware(["FAMILLE"]), async (req, res) => {
   const { abonnement_id, montant, email_client } = req.body;
   
-  console.log("🔵 Génération paiement:", { abonnement_id, montant, email_client });
+  console.log("🔵 Génération paiement Checkout:", { abonnement_id, montant, email_client });
   
   if (!process.env.FEDAPAY_SECRET_KEY) {
+    console.error("❌ FEDAPAY_SECRET_KEY manquante");
     return res.status(500).json({ error: "Configuration FedaPay manquante" });
   }
 
   try {
-    // ✅ Endpoint correct selon la doc FedaPay
+    // ✅ Création d'un checkout FedaPay (pas de transaction préalable)
     const response = await axios.post(
-      "https://api.fedapay.com/v1/transactions",
+      "https://api.fedapay.com/v1/checkouts",
       {
         amount: montant,
         currency: "XOF",
         description: `Santé Plus - Abonnement`,
-        customer: {
-          email: email_client || "client@santeplus.bj"
-        },
-        callback_url: "https://stevenckohr-pixel.github.io/sante-plus-frontend/#billing?status=success"
+        customer_email: email_client || "client@santeplus.bj",
+        callback_url: "https://stevenckohr-pixel.github.io/sante-plus-frontend/#billing?status=success",
+        metadata: {
+          abonnement_id: abonnement_id
+        }
       },
       {
         headers: { 
@@ -145,11 +145,12 @@ router.post("/generate-payment", middleware(["FAMILLE"]), async (req, res) => {
       }
     );
     
-    const transaction = response.data;
-    console.log("✅ Transaction créée:", transaction.id);
+    const checkout = response.data;
+    const paymentUrl = checkout.url;
     
-    // Générer l'URL de paiement à partir de l'ID de transaction
-    const paymentUrl = `https://checkout.fedapay.com/pay/${transaction.id}`;
+    if (!paymentUrl) {
+      throw new Error("Pas d'URL reçue de FedaPay");
+    }
     
     console.log("✅ Lien de paiement généré:", paymentUrl);
     res.json({ url: paymentUrl });
@@ -165,106 +166,12 @@ router.post("/generate-payment", middleware(["FAMILLE"]), async (req, res) => {
     res.status(500).json({ error: errorMessage });
   }
 });
+
+
 // ============================================================
 // ⚡ 4. WEBHOOK FEDAPAY (avec gestion des durées)
 // ============================================================
-router.post("/webhook", async (req, res) => {
-  console.log("💰 [WEBHOOK] Signal reçu");
-  console.log("Headers:", req.headers);
-  console.log("Body:", req.body);
-  
-  const event = req.body;
-  const signature = req.headers['x-fedapay-signature'];
-  
-  // Vérification de la signature
-  if (!verifyWebhookSignature(signature, JSON.stringify(event))) {
-    console.error("❌ [WEBHOOK] Signature invalide");
-    return res.status(401).json({ error: "Signature invalide" });
-  }
-  
-  // Traitement du paiement approuvé
-  if (event.type === 'transaction.approved' || event.entity?.status === 'approved') {
-    const transaction = event.entity;
-    const abonnement_id = transaction.metadata?.abonnement_id;
-    const montant_recu = transaction.amount;
-    const reference = transaction.id;
-    const moyen_paiement = transaction.payment_method?.type || 'FEDAPAY';
-    
-    if (!abonnement_id) {
-      console.error("❌ [WEBHOOK] Pas d'abonnement_id");
-      return res.sendStatus(200);
-    }
-    
-    console.log(`✅ [FEDAPAY] Paiement confirmé - Facture: ${abonnement_id}, Montant: ${montant_recu} CFA`);
-    
-    try {
-      // Récupérer l'abonnement
-      const { data: abo, error: errAbo } = await supabase
-        .from("abonnements")
-        .select('*, patient:patients(id, nom_complet, famille_user_id, type_pack)')
-        .eq("id", abonnement_id)
-        .single();
-      
-      if (errAbo) throw errAbo;
-      
-      const paymentDate = new Date();
-      const durationMonths = getDurationFromPack(abo.patient?.type_pack || abo.type_pack);
-      const endDate = calculateSubscriptionEndDate(paymentDate, durationMonths, 5);
-      
-      // Mise à jour de la facture
-      await supabase
-        .from("abonnements")
-        .update({
-          montant_paye: montant_recu,
-          statut: "Payé",
-          date_paiement: paymentDate.toISOString(),
-          date_fin_abonnement: endDate.toISOString(),
-          duree_mois: durationMonths,
-          reference_paiement: reference,
-          mode_paiement: moyen_paiement
-        })
-        .eq("id", abonnement_id);
-      
-      if (abo && abo.patient) {
-        // Mise à jour du patient
-        await supabase
-          .from("patients")
-          .update({ 
-            statut_paiement: "A jour",
-            date_dernier_paiement: paymentDate.toISOString(),
-            date_fin_abonnement: endDate.toISOString(),
-            duree_abonnement_mois: durationMonths
-          })
-          .eq("id", abo.patient.id);
-        
-        const endDateFormatted = endDate.toLocaleDateString('fr-FR');
-        
-        if (abo.patient.famille_user_id) {
-          await sendPushNotification(
-            abo.patient.famille_user_id,
-            "💎 Abonnement activé",
-            `Paiement reçu pour ${abo.patient.nom_complet}. Abonnement valable ${durationMonths} mois jusqu'au ${endDateFormatted}.`,
-            "/#dashboard"
-          );
 
-                        await createNotification(
-                abo.patient.famille_user_id,
-                "💎 Abonnement activé",
-                `Votre abonnement pour ${abo.patient.nom_complet} est actif jusqu'au ${endDateFormatted}.`,
-                "payment",
-                "/#dashboard"
-              );
-        }
-        
-        console.log(`✅ [WEBHOOK] Abonnement ${durationMonths} mois - Valable jusqu'au ${endDateFormatted}`);
-      }
-    } catch (err) {
-      console.error("❌ [WEBHOOK ERROR]:", err.message);
-    }
-  }
-  
-  res.sendStatus(200);
-});
 
 // ============================================================
 // 🩺 5. VÉRIFICATION DE L'ÉTAT DU WEBHOOK (Debug)
@@ -281,23 +188,12 @@ router.get("/webhook/status", middleware(["COORDINATEUR"]), async (req, res) => 
   });
 });
 
-// ============================================================
-// 📦 FONCTIONS UTILITAIRES
-// ============================================================
+ 
 
-/**
- * 🔐 Vérification de la signature webhook (une seule version)
- */
+// ============================================================
+// 🔐 Vérification de la signature webhook (Version activée)
+// ============================================================
 function verifyWebhookSignature(signature, payload) {
-  // ✅ Accepter tous les webhooks (solution temporaire pour que ça fonctionne)
-  console.log("⚠️ [WEBHOOK] Vérification désactivée - signature acceptée");
-  return true;
-  
-  /* Code à réactiver plus tard quand le webhook sera bien configuré
-  if (process.env.NODE_ENV === 'development') {
-    return true;
-  }
-  
   if (!signature || !process.env.FEDAPAY_WEBHOOK_SECRET) {
     console.error("❌ [WEBHOOK] Signature ou secret manquant");
     return false;
@@ -324,15 +220,18 @@ function verifyWebhookSignature(signature, payload) {
       .update(signedPayload)
       .digest('hex');
     
-    return crypto.timingSafeEqual(
+    const isValid = crypto.timingSafeEqual(
       Buffer.from(signatureHash, 'hex'),
       Buffer.from(expectedSignature, 'hex')
     );
+    
+    console.log(`🔐 Signature webhook valide: ${isValid}`);
+    return isValid;
+    
   } catch (err) {
     console.error("❌ [WEBHOOK] Erreur:", err.message);
     return false;
   }
-  */
 }
 /**
  * 📊 Récupère les derniers appels webhook pour debug
