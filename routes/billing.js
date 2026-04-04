@@ -113,7 +113,7 @@ router.post("/pay", middleware(["COORDINATEUR"]), async (req, res) => {
 router.post("/generate-payment", middleware(["FAMILLE"]), async (req, res) => {
   const { abonnement_id, montant, email_client } = req.body;
   
-  console.log("🔵 Génération paiement:", { abonnement_id, montant });
+  console.log("🔵 Génération paiement:", { abonnement_id, montant, email_client });
   
   if (!process.env.FEDAPAY_SECRET_KEY) {
     console.error("❌ FEDAPAY_SECRET_KEY manquante");
@@ -121,31 +121,65 @@ router.post("/generate-payment", middleware(["FAMILLE"]), async (req, res) => {
   }
 
   try {
+    // ✅ Nouvelle façon de créer une transaction avec checkout
     const response = await axios.post(
       "https://api.fedapay.com/v1/transactions",
       {
-        description: `Santé Plus - Abonnement #${abonnement_id.substring(0, 8)}`,
+        description: `Santé Plus - Abonnement #${abonnement_id?.substring(0, 8)}`,
         amount: montant,
         currency: { iso: "XOF" },
         callback_url: "https://stevenckohr-pixel.github.io/sante-plus-frontend/#billing?status=success",
         return_url: "https://stevenckohr-pixel.github.io/sante-plus-frontend/#billing",
         metadata: { abonnement_id: abonnement_id },
         customer: { email: email_client || "client@santeplus.bj" },
+        // ✅ IMPORTANT : Forcer le mode checkout
+        mode: "checkout"
       },
       {
         headers: { 
           Authorization: `Bearer ${process.env.FEDAPAY_SECRET_KEY}`,
           "Content-Type": "application/json"
         },
+        timeout: 30000
       }
     );
 
-    const transaction = response.data.transaction || response.data.v1?.transaction;
-    res.json({ url: transaction.url || `https://checkout.fedapay.com/${transaction.token}` });
+    const transaction = response.data.transaction || response.data;
+    
+    console.log("📦 Réponse FedaPay:", JSON.stringify(transaction, null, 2));
+    
+    // ✅ FedaPay v1.1 : l'URL est dans transaction.payment_url
+    let paymentUrl = transaction.payment_url;
+    
+    // ✅ Fallback pour l'ancienne version
+    if (!paymentUrl && transaction.url) {
+      paymentUrl = transaction.url;
+    }
+    
+    // ✅ Alternative : créer un token checkout
+    if (!paymentUrl && transaction.token) {
+      paymentUrl = `https://checkout.fedapay.com/${transaction.token}`;
+    }
+    
+    if (!paymentUrl) {
+      console.error("❌ Aucune URL trouvée dans la réponse:", transaction);
+      throw new Error("Pas d'URL de paiement reçue");
+    }
+
+    console.log("✅ Lien de paiement généré:", paymentUrl);
+    res.json({ url: paymentUrl });
     
   } catch (err) {
     console.error("❌ FedaPay Error:", err.response?.data || err.message);
-    res.status(500).json({ error: "Impossible de générer le lien de paiement." });
+    
+    let errorMessage = "Impossible de générer le lien de paiement";
+    if (err.response?.data?.errors) {
+      errorMessage = err.response.data.errors.map(e => e.message).join(", ");
+    } else if (err.code === 'ECONNABORTED') {
+      errorMessage = "Délai dépassé, veuillez réessayer";
+    }
+    
+    res.status(500).json({ error: errorMessage });
   }
 });
 // ============================================================
