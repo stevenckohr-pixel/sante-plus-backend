@@ -118,23 +118,19 @@ router.post("/generate-payment", middleware(["FAMILLE"]), async (req, res) => {
   console.log("🔵 Génération paiement:", { abonnement_id, montant, email_client });
   
   if (!process.env.FEDAPAY_SECRET_KEY) {
-    console.error("❌ FEDAPAY_SECRET_KEY manquante");
     return res.status(500).json({ error: "Configuration FedaPay manquante" });
   }
 
   try {
-    // ✅ Version simplifiée - sans création de customer
+    // ✅ API Checkout directe (la plus simple)
     const response = await axios.post(
-      "https://api.fedapay.com/v1/transactions",
+      "https://api.fedapay.com/v1/checkout",
       {
         amount: montant,
         currency: "XOF",
-        description: `Santé Plus - Abonnement`,
-        customer: {
-          email: email_client || "client@santeplus.bj"
-        },
-        callback_url: "https://stevenckohr-pixel.github.io/sante-plus-frontend/#billing?status=success",
-        return_url: "https://stevenckohr-pixel.github.io/sante-plus-frontend/#billing"
+        description: "Santé Plus - Abonnement",
+        customer_email: email_client || "client@santeplus.bj",
+        callback_url: "https://stevenckohr-pixel.github.io/sante-plus-frontend/#billing?status=success"
       },
       {
         headers: { 
@@ -144,37 +140,19 @@ router.post("/generate-payment", middleware(["FAMILLE"]), async (req, res) => {
       }
     );
     
-    const transaction = response.data;
-    console.log("✅ Transaction créée:", transaction.id);
+    // La réponse contient directement l'URL
+    const paymentUrl = response.data.url;
     
-    // Créer le token de checkout
-    const tokenResponse = await axios.post(
-      "https://api.fedapay.com/v1/checkout/tokens",
-      {
-        transaction_id: transaction.id
-      },
-      {
-        headers: { 
-          Authorization: `Bearer ${process.env.FEDAPAY_SECRET_KEY}`,
-          "Content-Type": "application/json"
-        }
-      }
-    );
-    
-    const paymentUrl = `https://checkout.fedapay.com/${tokenResponse.data.token}`;
+    if (!paymentUrl) {
+      throw new Error("Pas d'URL reçue de FedaPay");
+    }
     
     console.log("✅ Lien de paiement généré:", paymentUrl);
     res.json({ url: paymentUrl });
     
   } catch (err) {
     console.error("❌ FedaPay Error:", err.response?.data || err.message);
-    
-    let errorMessage = "Impossible de générer le lien de paiement";
-    if (err.response?.data?.errors) {
-      errorMessage = err.response.data.errors.map(e => e.message).join(", ");
-    }
-    
-    res.status(500).json({ error: errorMessage });
+    res.status(500).json({ error: "Impossible de générer le lien de paiement. Veuillez réessayer." });
   }
 });
 // ============================================================
