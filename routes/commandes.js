@@ -129,27 +129,41 @@ router.post("/confirm", middleware(["COORDINATEUR"]), async (req, res) => {
  * 📦 3. FINALISER LA LIVRAISON (Aidant)
  */
 router.post("/deliver", middleware(["AIDANT"]), upload.single('photo_livraison'), async (req, res) => {
-    console.log("🔵 [DELIVER] Début de la requête");
+    console.log("🔵 [DELIVER] Début");
     console.log("🔵 Body:", req.body);
-    console.log("🔵 Fichier:", req.file ? `Reçu (${req.file.size} bytes)` : "Aucun fichier");
+    console.log("🔵 File:", req.file ? { size: req.file.size, type: req.file.mimetype } : "Aucun");
+    
     const { commande_id } = req.body;
-    const photoFile = req.file;  
+    const photoFile = req.file;
 
-    console.log("📦 Requête reçue:", { commande_id, hasFile: !!photoFile });
+    if (!commande_id) {
+        return res.status(400).json({ error: "ID commande manquant" });
+    }
 
     if (!photoFile) {
         return res.status(400).json({ error: "Photo obligatoire" });
     }
 
+    // ✅ Vérifier la taille
+    if (photoFile.size > 5 * 1024 * 1024) {
+        return res.status(400).json({ error: "Photo trop lourde (max 5MB)" });
+    }
+
     try {
-        // Vérifier la commande
+        // 1. Vérifier la commande
+        console.log("🔍 Vérification commande:", commande_id);
         const { data: commande, error: checkErr } = await supabase
             .from("commandes_meds")
-            .select("id, aidant_id, patient_id")
+            .select("id, aidant_id, patient_id, statut")
             .eq("id", commande_id)
             .single();
         
-        if (checkErr || !commande) {
+        if (checkErr) {
+            console.error("❌ Erreur check commande:", checkErr);
+            return res.status(404).json({ error: "Commande introuvable: " + checkErr.message });
+        }
+        
+        if (!commande) {
             return res.status(404).json({ error: "Commande introuvable" });
         }
         
@@ -157,70 +171,96 @@ router.post("/deliver", middleware(["AIDANT"]), upload.single('photo_livraison')
             return res.status(403).json({ error: "Vous n'êtes pas assigné à cette commande" });
         }
 
-        // Upload photo
+        if (commande.statut === "Livrée") {
+            return res.status(400).json({ error: "Commande déjà livrée" });
+        }
+
+        // 2. Upload photo
+        console.log("📤 Upload photo vers Supabase...");
         const fileName = `commandes/${commande_id}_${Date.now()}.jpg`;
+        
         const { error: uploadError } = await supabase.storage
             .from("preuves")
             .upload(fileName, photoFile.buffer, {
-                contentType: 'image/jpeg',
-                upsert: true
+                contentType: photoFile.mimetype || 'image/jpeg',
+                upsert: false,
+                cacheControl: '3600'
             });
         
-        if (uploadError) throw uploadError;
+        if (uploadError) {
+            console.error("❌ Erreur upload:", uploadError);
+            // Si le bucket n'existe pas, l'erreur sera comme "bucket not found"
+            if (uploadError.message?.includes("bucket")) {
+                return res.status(500).json({ error: "Bucket 'preuves' non configuré. Contactez l'administrateur." });
+            }
+            throw new Error("Upload échoué: " + uploadError.message);
+        }
         
         const { data: urlData } = supabase.storage.from("preuves").getPublicUrl(fileName);
         const photoUrl = urlData.publicUrl;
+        console.log("📸 Photo uploadée:", photoUrl);
 
-        // Mettre à jour la commande
+        // 3. Mettre à jour la commande
+        console.log("📝 Mise à jour commande...");
         const { error: updateError } = await supabase
             .from("commandes_meds")
             .update({
                 photo_livraison: photoUrl,
                 statut: "Livrée",
-                date_livraison: new Date()
+                date_livraison: new Date().toISOString()
             })
             .eq("id", commande_id);
         
-        if (updateError) throw updateError;
+        if (updateError) {
+            console.error("❌ Erreur update:", updateError);
+            throw new Error("Mise à jour échouée: " + updateError.message);
+        }
 
-        // Récupérer les infos pour notification
-        const { data: patient } = await supabase
+        // 4. Récupérer patient et envoyer notification
+        const { data: patient, error: patientErr } = await supabase
             .from("patients")
             .select("nom_complet, famille_user_id")
             .eq("id", commande.patient_id)
             .single();
 
-        // Ajouter dans le feed
-        await supabase.from("messages").insert([{
-            patient_id: commande.patient_id,
-            sender_id: req.user.userId,
-            content: photoUrl,
-            is_photo: true,
-            type_media: 'DOCUMENT',
-            titre_media: `Reçu Pharmacie - ${patient.nom_complet}`
-        }]);
+        if (!patientErr && patient) {
+            // Ajouter au feed
+            await supabase.from("messages").insert([{
+                patient_id: commande.patient_id,
+                sender_id: req.user.userId,
+                content: photoUrl,
+                is_photo: true,
+                type_media: 'DOCUMENT',
+                titre_media: `Reçu Pharmacie - ${patient.nom_complet}`
+            }]);
 
-        // Notification à la famille
-        if (patient.famille_user_id) {
-            await sendPushNotification(
-                patient.famille_user_id,
-                "📦 Médicaments livrés",
-                `Les médicaments pour ${patient.nom_complet} ont été livrés.`,
-                "/#feed"
-            );
+            // Notification push
+            if (patient.famille_user_id) {
+                try {
+                    await sendPushNotification(
+                        patient.famille_user_id,
+                        "📦 Médicaments livrés",
+                        `Les médicaments pour ${patient.nom_complet} ont été livrés.`,
+                        "/#feed"
+                    );
+                } catch (pushErr) {
+                    console.warn("⚠️ Push notification échouée:", pushErr.message);
+                }
+            }
         }
 
         console.log("✅ Livraison confirmée pour commande:", commande_id);
-        res.json({ status: "success" });
+        res.json({ status: "success", message: "Livraison confirmée" });
 
     } catch (err) {
         console.error("❌ Erreur livraison:", err);
-        res.status(500).json({ error: err.message });
+        // ✅ Toujours retourner du JSON valide
+        res.status(500).json({ 
+            error: err.message || "Erreur interne du serveur",
+            details: process.env.NODE_ENV === 'development' ? err.stack : undefined
+        });
     }
 });
-
-
-
 /**
  * 📋 4. LISTER LES COMMANDES (Filtrage par rôle)
  */
