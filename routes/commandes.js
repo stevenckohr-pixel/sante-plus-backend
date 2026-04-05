@@ -282,37 +282,55 @@ router.get("/", middleware(["COORDINATEUR", "AIDANT", "FAMILLE"]), async (req, r
         let query = supabase.from("commandes_meds").select(`
             *,
             patient:patients (id, nom_complet, adresse, famille_user_id),
-            demandeur:profiles!commandes_meds_demandeur_id_fkey (nom),
-            aidant:profiles!commandes_meds_aidant_id_fkey (nom, telephone)
+            demandeur:profiles!commandes_meds_demandeur_id_fkey (id, nom, role),
+            aidant:profiles!commandes_meds_aidant_id_fkey (id, nom, telephone)
         `);
 
         if (req.user.role === "AIDANT") {
-            // ✅ Aidant voit les commandes assignées ET en attente de livraison
-            query = query
-                .eq("aidant_id", req.user.userId)
-                .in("statut", ["Confirmée", "Livrée"]);
+            query = query.eq("aidant_id", req.user.userId).in("statut", ["Confirmée", "Livrée"]);
         } 
         else if (req.user.role === "FAMILLE") {
-            // ✅ Famille voit TOUTES ses commandes
             const { data: patients } = await supabase
                 .from("patients")
                 .select("id")
                 .eq("famille_user_id", req.user.userId);
             
-            if (!patients || patients.length === 0) {
-                return res.json([]);
-            }
-            
+            if (!patients || patients.length === 0) return res.json([]);
             const patientIds = patients.map(p => p.id);
             query = query.in("patient_id", patientIds);
         }
-        // COORDINATEUR voit tout
 
         const { data, error } = await query.order("created_at", { ascending: false });
         if (error) throw error;
         res.json(data);
     } catch (err) {
-        console.error("❌ Erreur liste commandes:", err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+
+
+router.post("/upload-image", middleware(["FAMILLE", "AIDANT", "COORDINATEUR"]), upload.single('image'), async (req, res) => {
+    try {
+        const file = req.file;
+        if (!file) return res.status(400).json({ error: "Aucune image" });
+        
+        const fileName = `commandes/${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
+        
+        const { error } = await supabase.storage
+            .from("commandes")
+            .upload(fileName, file.buffer, {
+                contentType: file.mimetype,
+                upsert: false
+            });
+        
+        if (error) throw error;
+        
+        const { data: urlData } = supabase.storage.from("commandes").getPublicUrl(fileName);
+        
+        res.json({ url: urlData.publicUrl });
+    } catch (err) {
+        console.error("❌ Erreur upload image:", err);
         res.status(500).json({ error: err.message });
     }
 });
