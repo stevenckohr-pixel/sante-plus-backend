@@ -113,20 +113,32 @@ router.post("/pay", middleware(["COORDINATEUR"]), async (req, res) => {
 // ============================================================
 // 💳 3. GÉNÉRER UN LIEN FEDAPAY CHECKOUT
 // ============================================================
+// ============================================================
+// 💳 3. GÉNÉRER UN LIEN FEDAPAY CHECKOUT
+// ============================================================
 router.post("/generate-payment", middleware(["FAMILLE"]), async (req, res) => {
   const { abonnement_id, montant, email_client } = req.body;
   
   console.log("🔵 Génération paiement Checkout:", { abonnement_id, montant, email_client });
   
+  // ✅ Vérifier que la clé API existe
   if (!process.env.FEDAPAY_SECRET_KEY) {
-    console.error("❌ FEDAPAY_SECRET_KEY manquante");
+    console.error("❌ FEDAPAY_SECRET_KEY manquante dans .env");
     return res.status(500).json({ error: "Configuration FedaPay manquante" });
   }
 
+  // ✅ Utiliser une variable d'environnement explicite pour le mode
+  const fedapayMode = process.env.FEDAPAY_MODE || 'sandbox'; // 'sandbox' ou 'production'
+  const apiUrl = fedapayMode === 'production' 
+    ? "https://api.fedapay.com/v1/checkouts"
+    : "https://sandbox-api.fedapay.com/v1/checkouts";
+  
+  console.log(`🌍 Mode FedaPay: ${fedapayMode}`);
+  console.log(`📡 URL FedaPay: ${apiUrl}`);
+
   try {
-    // ✅ Création d'un checkout FedaPay (pas de transaction préalable)
     const response = await axios.post(
-      "https://api.fedapay.com/v1/checkouts",
+      apiUrl,
       {
         amount: montant,
         currency: "XOF",
@@ -141,32 +153,48 @@ router.post("/generate-payment", middleware(["FAMILLE"]), async (req, res) => {
         headers: { 
           Authorization: `Bearer ${process.env.FEDAPAY_SECRET_KEY}`,
           "Content-Type": "application/json"
-        }
+        },
+        timeout: 30000 // 30 secondes
       }
     );
     
-    const checkout = response.data;
-    const paymentUrl = checkout.url;
-    
-    if (!paymentUrl) {
-      throw new Error("Pas d'URL reçue de FedaPay");
+    // Vérifier la structure de la réponse
+    if (!response.data || !response.data.url) {
+      console.error("❌ Réponse FedaPay invalide:", response.data);
+      throw new Error("La réponse de FedaPay ne contient pas d'URL");
     }
     
+    const paymentUrl = response.data.url;
     console.log("✅ Lien de paiement généré:", paymentUrl);
     res.json({ url: paymentUrl });
     
   } catch (err) {
-    console.error("❌ FedaPay Error:", err.response?.data || err.message);
+    console.error("❌ FedaPay Error:");
+    if (err.response) {
+      console.error("  Status:", err.response.status);
+      console.error("  Data:", err.response.data);
+      console.error("  Headers:", err.response.headers);
+    } else if (err.request) {
+      console.error("  No response received:", err.request);
+    } else {
+      console.error("  Error message:", err.message);
+    }
     
+    // ✅ Message d'erreur plus clair
     let errorMessage = "Impossible de générer le lien de paiement";
-    if (err.response?.data?.errors) {
+    if (err.response?.status === 401) {
+      errorMessage = "Clé API FedaPay invalide. Vérifiez votre clé dans .env";
+    } else if (err.response?.status === 404) {
+      errorMessage = `API FedaPay inaccessible (404). Vérifiez que vous utilisez le bon environnement (${fedapayMode}). La clé doit correspondre à cet environnement.`;
+    } else if (err.response?.data?.errors) {
       errorMessage = err.response.data.errors.map(e => e.message).join(", ");
+    } else if (err.code === 'ECONNABORTED') {
+      errorMessage = "La requête a expiré. Réessayez.";
     }
     
     res.status(500).json({ error: errorMessage });
   }
 });
-
 
 // ============================================================
 // ⚡ 4. WEBHOOK FEDAPAY (avec gestion des durées)
