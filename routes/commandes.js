@@ -29,21 +29,9 @@ const upload = multer({
  * 💊 1. CRÉER UNE COMMANDE (Famille ou Coordinateur)
  */
 router.post("/add", middleware(["COORDINATEUR", "FAMILLE"]), async (req, res) => {
-    const { patient_id, liste_medocs } = req.body;
+    const { patient_id, liste_medocs, type_commande, urgent, images } = req.body;
     
-    // 🛡️ VÉRIFICATION pour la FAMILLE : le patient doit lui appartenir
-    if (req.user.role === "FAMILLE") {
-        const { data: patient, error } = await supabase
-            .from("patients")
-            .select("id")
-            .eq("id", patient_id)
-            .eq("famille_user_id", req.user.userId)
-            .single();
-        
-        if (error || !patient) {
-            return res.status(403).json({ error: "Vous ne pouvez pas commander pour ce patient" });
-        }
-    }
+    console.log("📦 Création commande - Images reçues:", images);
     
     try {
         const { error } = await supabase.from("commandes_meds").insert([
@@ -51,31 +39,18 @@ router.post("/add", middleware(["COORDINATEUR", "FAMILLE"]), async (req, res) =>
                 patient_id,
                 demandeur_id: req.user.userId,
                 liste_medocs,
+                type_commande: type_commande || 'AUTRE',
+                urgent: urgent || false,
+                images: images || [],  // ← tableau d'URLs
                 statut: "En attente",
             },
         ]);
 
         if (error) throw error;
         
-        // 🔔 Envoyer une notification au coordinateur
-        const { data: coordinators } = await supabase
-            .from("profiles")
-            .select("id")
-            .eq("role", "COORDINATEUR");
-        
-        if (coordinators) {
-            coordinators.forEach(coord => {
-                sendPushNotification(
-                    coord.id,
-                    "💊 Nouvelle commande",
-                    `Une nouvelle commande de médicaments est en attente.`,
-                    "/#commandes"
-                );
-            });
-        }
-        
-        res.json({ status: "success", message: "Demande de pharmacie enregistrée." });
+        res.json({ status: "success", message: "Demande enregistrée." });
     } catch (err) {
+        console.error("❌ Erreur création commande:", err);
         res.status(500).json({ error: err.message });
     }
 });
@@ -566,17 +541,16 @@ async function autoAssignPendingCommands() {
 // Exposer la fonction pour le cron
 
 router.post("/upload-image", middleware(["FAMILLE", "AIDANT", "COORDINATEUR"]), upload.single('image'), async (req, res) => {
-    console.log("🔵 [UPLOAD-IMAGE] Début");
-    console.log("🔵 Fichier reçu:", req.file ? req.file.originalname : "AUCUN");
-    
     try {
         const file = req.file;
-        if (!file) {
-            console.error("❌ Aucune image");
-            return res.status(400).json({ error: "Aucune image" });
-        }
+        if (!file) return res.status(400).json({ error: "Aucune image" });
         
-        const fileName = `commandes/${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
+        // ❌ ANCIEN (créait un dossier "commandes" dans le bucket "commandes")
+        // const fileName = `commandes/${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
+        
+        // ✅ NOUVEAU (fichier directement à la racine du bucket)
+        const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
+        
         console.log("📤 Upload vers:", fileName);
         
         const { error } = await supabase.storage
@@ -586,21 +560,18 @@ router.post("/upload-image", middleware(["FAMILLE", "AIDANT", "COORDINATEUR"]), 
                 upsert: false
             });
         
-        if (error) {
-            console.error("❌ Erreur upload storage:", error);
-            throw error;
-        }
+        if (error) throw error;
         
         const { data: urlData } = supabase.storage.from("commandes").getPublicUrl(fileName);
+        
         console.log("✅ URL générée:", urlData.publicUrl);
         
         res.json({ url: urlData.publicUrl });
     } catch (err) {
-        console.error("❌ Erreur upload-image:", err);
+        console.error("❌ Erreur upload image:", err);
         res.status(500).json({ error: err.message });
     }
 });
-
 
 // Fonction auto-assignation
 async function autoAssignPendingCommands() {
