@@ -564,7 +564,6 @@ async function autoAssignPendingCommands() {
 }
 
 // Exposer la fonction pour le cron
-module.exports.autoAssignPendingCommands = autoAssignPendingCommands;
 
 router.post("/upload-image", middleware(["FAMILLE", "AIDANT", "COORDINATEUR"]), upload.single('image'), async (req, res) => {
     console.log("🔵 [UPLOAD-IMAGE] Début");
@@ -603,5 +602,57 @@ router.post("/upload-image", middleware(["FAMILLE", "AIDANT", "COORDINATEUR"]), 
 });
 
 
+// Fonction auto-assignation
+async function autoAssignPendingCommands() {
+    console.log("🔍 [AUTO-ASSIGN] Début de la vérification...");
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    
+    const { data: pendingCommands, error: fetchError } = await supabase
+        .from("commandes_meds")
+        .select("id, patient_id, urgent")
+        .eq("statut", "En attente")
+        .lt("created_at", tenMinutesAgo);
+    
+    if (fetchError || !pendingCommands?.length) {
+        console.log("📦 Aucune commande à assigner automatiquement");
+        return;
+    }
+    
+    console.log(`📦 ${pendingCommands.length} commande(s) à assigner auto`);
+    
+    for (const cmd of pendingCommands) {
+        const { data: availableAidants } = await supabase
+            .from("planning")
+            .select("aidant_id, aidant:profiles!aidant_id(nom)")
+            .eq("patient_id", cmd.patient_id)
+            .eq("est_actif", true);
+        
+        if (availableAidants?.length) {
+            const aidantId = availableAidants[0].aidant_id;
+            const aidantNom = availableAidants[0].aidant?.nom;
+            
+            await supabase
+                .from("commandes_meds")
+                .update({ 
+                    aidant_id: aidantId,
+                    statut: "En cours",
+                    auto_assigned: true,
+                    auto_assigned_at: new Date().toISOString()
+                })
+                .eq("id", cmd.id);
+            
+            await sendPushNotification(
+                aidantId,
+                cmd.urgent ? "⚠️ Commande urgente (auto-assignée)" : "📦 Nouvelle commande (auto-assignée)",
+                `Une commande ${cmd.urgent ? "urgente " : ""}vous a été automatiquement assignée.`,
+                "/#commandes"
+            );
+            
+            console.log(`✅ Commande ${cmd.id} auto-assignée à ${aidantNom}`);
+        }
+    }
+}
 
+// Exporter correctement
 module.exports = router;
+module.exports.autoAssignPendingCommands = autoAssignPendingCommands;
