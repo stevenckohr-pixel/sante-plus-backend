@@ -582,7 +582,15 @@ router.post("/upload-image", middleware(["FAMILLE", "AIDANT", "COORDINATEUR"]), 
     }
 });
 
-
+router.post('/commandes/:id/deliver', async (req, res) => {
+    try {
+        const { id } = req.params;
+        // Logique de livraison
+        res.json({ success: true, message: 'Livraison confirmée' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
 
 
 module.exports = router;
