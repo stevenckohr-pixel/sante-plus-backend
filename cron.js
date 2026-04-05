@@ -1,7 +1,6 @@
 const cron = require("node-cron");
 const supabase = require("./supabaseClient");
 const { sendPushNotification } = require("./utils");
-// Ajoute cette ligne dans cron.js, avec les autres cron jobs
 const { autoAssignPendingCommands } = require("./routes/commandes");
 
 // Auto-assignation des commandes toutes les 5 minutes
