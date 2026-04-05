@@ -81,7 +81,7 @@ router.post("/add", middleware(["COORDINATEUR", "FAMILLE"]), async (req, res) =>
 });
 
  router.post("/accept", middleware(["AIDANT"]), async (req, res) => {
-    const { commande_id } = req.body;
+    const { commandeId } = req.body;
     
     try {
         const { data: commande, error } = await supabase
@@ -90,7 +90,7 @@ router.post("/add", middleware(["COORDINATEUR", "FAMILLE"]), async (req, res) =>
                 aidant_id: req.user.userId,
                 statut: "En cours de livraison"
             })
-            .eq("id", commande_id)
+            .eq("id", commandeId)
             .select('*, patient:patients(nom_complet, famille_user_id)')
             .single();
         
@@ -117,7 +117,7 @@ router.post("/add", middleware(["COORDINATEUR", "FAMILLE"]), async (req, res) =>
  * 💰 2. CONFIRMER LE PRIX & ASSIGNER (Coordinateur)
  */
 router.post("/confirm", middleware(["COORDINATEUR"]), async (req, res) => {
-    const { commande_id, aidant_id } = req.body;
+    const { commandeId, aidant_id } = req.body;
     
     try {
         // Vérifier que l'aidant existe
@@ -139,7 +139,7 @@ router.post("/confirm", middleware(["COORDINATEUR"]), async (req, res) => {
                 aidant_id,
                 statut: "En cours de livraison"  // Nouveau statut
             })
-            .eq("id", commande_id)
+            .eq("id", commandeId)
             .select('*, patient:patients(nom_complet, famille_user_id)')
             .single();
 
@@ -164,7 +164,7 @@ router.post("/confirm", middleware(["COORDINATEUR"]), async (req, res) => {
  * 📋 ASSIGNER UNE COMMANDE À UN AIDANT (Coordinateur)
  */
 router.post("/assign", middleware(["COORDINATEUR"]), async (req, res) => {
-    const { commande_id, aidant_id, notes } = req.body;
+    const { commandeId, aidant_id, notes } = req.body;
     
     try {
         // Vérifier que l'aidant existe
@@ -187,7 +187,7 @@ router.post("/assign", middleware(["COORDINATEUR"]), async (req, res) => {
                 statut: "En cours",
                 notes_coordinateur: notes || null
             })
-            .eq("id", commande_id)
+            .eq("id", commandeId)
             .select('*, patient:patients(nom_complet, famille_user_id)')
             .single();
 
@@ -222,7 +222,7 @@ router.post("/assign", middleware(["COORDINATEUR"]), async (req, res) => {
  * ✅ VALIDER LA LIVRAISON (Coordinateur)
  */
 router.post("/validate", middleware(["COORDINATEUR"]), async (req, res) => {
-    const { commande_id } = req.body;
+    const { commandeId } = req.body;
     
     try {
         const { data: commande, error } = await supabase
@@ -230,7 +230,7 @@ router.post("/validate", middleware(["COORDINATEUR"]), async (req, res) => {
             .update({
                 statut: "Validée"
             })
-            .eq("id", commande_id)
+            .eq("id", commandeId)
             .select('*, patient:patients(nom_complet, famille_user_id)')
             .single();
         
@@ -259,15 +259,16 @@ router.post("/validate", middleware(["COORDINATEUR"]), async (req, res) => {
 /**
  * 📦 AIDANT LIVRE LA COMMANDE (avec plusieurs photos)
  */
-router.post("/deliver", middleware(["AIDANT"]), upload.array('photos', 5), async (req, res) => {
+router.post("/:id/deliver", middleware(["AIDANT"]), upload.array('photos', 5), async (req, res) => {
     console.log("🔵 [DELIVER] Début");
     console.log("🔵 Body:", req.body);
     console.log("🔵 Files:", req.files ? req.files.length : 0);
     
-    const { commande_id, notes_livraison } = req.body;
+    const commandeId = req.params.id; 
+    const { notes_livraison } = req.body;
     const photoFiles = req.files || [];
-
-    if (!commande_id) {
+    
+    if (!commandeId) {  // ✅ CORRECTION : utiliser la bonne variable
         return res.status(400).json({ error: "ID commande manquant" });
     }
 
@@ -284,11 +285,11 @@ router.post("/deliver", middleware(["AIDANT"]), upload.array('photos', 5), async
 
     try {
         // 1. Vérifier la commande
-        console.log("🔍 Vérification commande:", commande_id);
+        console.log("🔍 Vérification commande:", commandeId);
         const { data: commande, error: checkErr } = await supabase
             .from("commandes_meds")
             .select("id, aidant_id, patient_id, statut")
-            .eq("id", commande_id)
+            .eq("id", commandeId)
             .single();
         
         if (checkErr) {
@@ -310,7 +311,7 @@ router.post("/deliver", middleware(["AIDANT"]), upload.array('photos', 5), async
         
         for (let i = 0; i < photoFiles.length; i++) {
             const photo = photoFiles[i];
-            const fileName = `livraisons/${commande_id}_${Date.now()}_${i}_${Math.random().toString(36).substring(7)}.jpg`;
+            const fileName = `livraisons/${commandeId}_${Date.now()}_${i}_${Math.random().toString(36).substring(7)}.jpg`;
             
             const { error: uploadError } = await supabase.storage
                 .from("preuves")
@@ -345,7 +346,7 @@ router.post("/deliver", middleware(["AIDANT"]), upload.array('photos', 5), async
                 photos_livraison: uploadedPhotos,
                 notes_livraison: notes_livraison || null
             })
-            .eq("id", commande_id);
+            .eq("id", commandeId);
         
         if (updateError) {
             console.error("❌ Erreur update:", updateError);
@@ -404,7 +405,7 @@ router.post("/deliver", middleware(["AIDANT"]), upload.array('photos', 5), async
             });
         }
 
-        console.log("✅ Livraison confirmée pour commande:", commande_id);
+        console.log("✅ Livraison confirmée pour commande:", commandeId);
         res.json({ 
             status: "success", 
             message: "Livraison confirmée", 
@@ -582,15 +583,7 @@ router.post("/upload-image", middleware(["FAMILLE", "AIDANT", "COORDINATEUR"]), 
     }
 });
 
-router.post('/commandes/:id/deliver', async (req, res) => {
-    try {
-        const { id } = req.params;
-        // Logique de livraison
-        res.json({ success: true, message: 'Livraison confirmée' });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
+
 
 
 module.exports = router;
