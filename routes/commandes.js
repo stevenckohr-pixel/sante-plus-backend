@@ -567,11 +567,18 @@ async function autoAssignPendingCommands() {
 module.exports.autoAssignPendingCommands = autoAssignPendingCommands;
 
 router.post("/upload-image", middleware(["FAMILLE", "AIDANT", "COORDINATEUR"]), upload.single('image'), async (req, res) => {
+    console.log("🔵 [UPLOAD-IMAGE] Début");
+    console.log("🔵 Fichier reçu:", req.file ? req.file.originalname : "AUCUN");
+    
     try {
         const file = req.file;
-        if (!file) return res.status(400).json({ error: "Aucune image" });
+        if (!file) {
+            console.error("❌ Aucune image");
+            return res.status(400).json({ error: "Aucune image" });
+        }
         
         const fileName = `commandes/${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
+        console.log("📤 Upload vers:", fileName);
         
         const { error } = await supabase.storage
             .from("commandes")
@@ -580,17 +587,20 @@ router.post("/upload-image", middleware(["FAMILLE", "AIDANT", "COORDINATEUR"]), 
                 upsert: false
             });
         
-        if (error) throw error;
+        if (error) {
+            console.error("❌ Erreur upload storage:", error);
+            throw error;
+        }
         
         const { data: urlData } = supabase.storage.from("commandes").getPublicUrl(fileName);
+        console.log("✅ URL générée:", urlData.publicUrl);
         
         res.json({ url: urlData.publicUrl });
     } catch (err) {
-        console.error("❌ Erreur upload image:", err);
+        console.error("❌ Erreur upload-image:", err);
         res.status(500).json({ error: err.message });
     }
 });
-
 
 
 
