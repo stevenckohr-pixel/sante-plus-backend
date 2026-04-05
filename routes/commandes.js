@@ -80,18 +80,50 @@ router.post("/add", middleware(["COORDINATEUR", "FAMILLE"]), async (req, res) =>
     }
 });
 
- 
+ router.post("/accept", middleware(["AIDANT"]), async (req, res) => {
+    const { commande_id } = req.body;
+    
+    try {
+        const { data: commande, error } = await supabase
+            .from("commandes_meds")
+            .update({
+                aidant_id: req.user.userId,
+                statut: "En cours de livraison"
+            })
+            .eq("id", commande_id)
+            .select('*, patient:patients(nom_complet, famille_user_id)')
+            .single();
+        
+        if (error) throw error;
+        
+        // Notifier la famille
+        if (commande.patient.famille_user_id) {
+            sendPushNotification(
+                commande.patient.famille_user_id,
+                "🚚 Commande en cours",
+                `${commande.patient.nom_complet} - Un livreur a pris votre commande en charge.`,
+                "/#commandes"
+            );
+        }
+        
+        res.json({ status: "success" });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+
 /**
  * 💰 2. CONFIRMER LE PRIX & ASSIGNER (Coordinateur)
  */
 router.post("/confirm", middleware(["COORDINATEUR"]), async (req, res) => {
-    const { commande_id, aidant_id, prix_total } = req.body;
+    const { commande_id, aidant_id } = req.body;
     
     try {
-        // Vérifier que l'aidant existe et a le bon rôle
+        // Vérifier que l'aidant existe
         const { data: aidant, error: aidantErr } = await supabase
             .from("profiles")
-            .select("id")
+            .select("id, nom")
             .eq("id", aidant_id)
             .eq("role", "AIDANT")
             .single();
@@ -100,12 +132,12 @@ router.post("/confirm", middleware(["COORDINATEUR"]), async (req, res) => {
             return res.status(400).json({ error: "Aidant invalide" });
         }
         
+        // Assigner l'aidant à la commande (sans prix)
         const { data: cmd, error } = await supabase
             .from("commandes_meds")
             .update({
                 aidant_id,
-                prix_total,
-                statut: "Confirmée",
+                statut: "En cours de livraison"  // Nouveau statut
             })
             .eq("id", commande_id)
             .select('*, patient:patients(nom_complet, famille_user_id)')
@@ -113,21 +145,11 @@ router.post("/confirm", middleware(["COORDINATEUR"]), async (req, res) => {
 
         if (error) throw error;
 
-        // Notification à la famille
-        if (cmd.patient && cmd.patient.famille_user_id) {
-            sendPushNotification(
-                cmd.patient.famille_user_id,
-                "💊 Pharmacie : Prix validé",
-                `Le montant pour les médicaments de ${cmd.patient.nom_complet} est de ${prix_total} CFA.`,
-                "/#billing"
-            );
-        }
-        
         // Notification à l'aidant
         sendPushNotification(
             aidant_id,
-            "📦 Nouvelle livraison",
-            `Vous avez une commande à livrer pour ${cmd.patient.nom_complet}.`,
+            "📦 Nouvelle commande à livrer",
+            `Une commande pour ${cmd.patient.nom_complet} vous a été assignée.`,
             "/#commandes"
         );
 
@@ -137,6 +159,99 @@ router.post("/confirm", middleware(["COORDINATEUR"]), async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+
+/**
+ * 📋 ASSIGNER UNE COMMANDE À UN AIDANT (Coordinateur)
+ */
+router.post("/assign", middleware(["COORDINATEUR"]), async (req, res) => {
+    const { commande_id, aidant_id, notes } = req.body;
+    
+    try {
+        // Vérifier que l'aidant existe
+        const { data: aidant, error: aidantErr } = await supabase
+            .from("profiles")
+            .select("id, nom")
+            .eq("id", aidant_id)
+            .eq("role", "AIDANT")
+            .single();
+        
+        if (aidantErr || !aidant) {
+            return res.status(400).json({ error: "Aidant invalide" });
+        }
+        
+        // Assigner l'aidant à la commande
+        const { data: cmd, error } = await supabase
+            .from("commandes_meds")
+            .update({
+                aidant_id: aidant_id,
+                statut: "En cours",
+                notes_coordinateur: notes || null
+            })
+            .eq("id", commande_id)
+            .select('*, patient:patients(nom_complet, famille_user_id)')
+            .single();
+
+        if (error) throw error;
+
+        // Notification à l'aidant
+        sendPushNotification(
+            aidant_id,
+            "📦 Nouvelle commande à livrer",
+            `Une commande pour ${cmd.patient.nom_complet} vous a été assignée.`,
+            "/#commandes"
+        );
+
+        // Notification à la famille
+        if (cmd.patient.famille_user_id) {
+            sendPushNotification(
+                cmd.patient.famille_user_id,
+                "🚚 Commande en cours",
+                `Votre commande pour ${cmd.patient.nom_complet} a été prise en charge.`,
+                "/#commandes"
+            );
+        }
+
+        res.json({ status: "success" });
+    } catch (err) {
+        console.error("❌ Erreur assignation:", err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/**
+ * ✅ VALIDER LA LIVRAISON (Coordinateur)
+ */
+router.post("/validate", middleware(["COORDINATEUR"]), async (req, res) => {
+    const { commande_id } = req.body;
+    
+    try {
+        const { data: commande, error } = await supabase
+            .from("commandes_meds")
+            .update({
+                statut: "Validée"
+            })
+            .eq("id", commande_id)
+            .select('*, patient:patients(nom_complet, famille_user_id)')
+            .single();
+        
+        if (error) throw error;
+        
+        // Notification à la famille
+        if (commande.patient.famille_user_id) {
+            sendPushNotification(
+                commande.patient.famille_user_id,
+                "✅ Livraison validée",
+                `La livraison pour ${commande.patient.nom_complet} a été validée par la coordination.`,
+                "/#commandes"
+            );
+        }
+        
+        res.json({ status: "success" });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 
 /**
  * 📦 3. FINALISER LA LIVRAISON (Aidant)
@@ -287,7 +402,22 @@ router.get("/", middleware(["COORDINATEUR", "AIDANT", "FAMILLE"]), async (req, r
         `);
 
         if (req.user.role === "AIDANT") {
-            query = query.eq("aidant_id", req.user.userId).in("statut", ["Confirmée", "Livrée"]);
+            // ✅ L'aidant voit TOUTES les commandes de ses patients assignés
+            // Récupérer les IDs des patients assignés à l'aidant
+            const { data: assignments } = await supabase
+                .from("planning")
+                .select("patient_id")
+                .eq("aidant_id", req.user.userId)
+                .eq("est_actif", true);
+            
+            const patientIds = assignments ? assignments.map(a => a.patient_id) : [];
+            
+            if (patientIds.length === 0) {
+                return res.json([]);
+            }
+            
+            // L'aidant voit toutes les commandes de ses patients (même en attente)
+            query = query.in("patient_id", patientIds);
         } 
         else if (req.user.role === "FAMILLE") {
             const { data: patients } = await supabase
@@ -307,8 +437,6 @@ router.get("/", middleware(["COORDINATEUR", "AIDANT", "FAMILLE"]), async (req, r
         res.status(500).json({ error: err.message });
     }
 });
-
-
 
 router.post("/upload-image", middleware(["FAMILLE", "AIDANT", "COORDINATEUR"]), upload.single('image'), async (req, res) => {
     try {
