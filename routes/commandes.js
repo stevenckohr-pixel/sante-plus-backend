@@ -257,34 +257,49 @@ router.post("/validate", middleware(["COORDINATEUR"]), async (req, res) => {
 /**
  * 📦 AIDANT LIVRE LA COMMANDE (avec plusieurs photos)
  */
+/**
+ * 📦 AIDANT LIVRE LA COMMANDE (avec plusieurs photos) - VERSION CORRIGÉE
+ */
 router.post("/:id/deliver", middleware(["AIDANT"]), upload.array('photos', 5), async (req, res) => {
     console.log("🔵 [DELIVER] Début");
+    console.log("🔵 Param ID:", req.params.id);
     console.log("🔵 Body:", req.body);
-    console.log("🔵 Files:", req.files ? req.files.length : 0);
+    console.log("🔵 Files reçus:", req.files ? req.files.length : 0);
     
-    const commandeId = req.params.id; 
+    // Afficher les détails des fichiers pour debug
+    if (req.files && req.files.length > 0) {
+        req.files.forEach((file, i) => {
+            console.log(`📸 Fichier ${i}:`, {
+                originalname: file.originalname,
+                size: file.size,
+                mimetype: file.mimetype
+            });
+        });
+    }
+    
+    const commandeId = req.params.id;
     const { notes_livraison } = req.body;
     const photoFiles = req.files || [];
-
-        console.log("📸 Photos reçues:", photoFiles?.length || 0);
     
-    if (!commandeId) {  // ✅ CORRECTION : utiliser la bonne variable
+    if (!commandeId) {
+        console.error("❌ ID commande manquant");
         return res.status(400).json({ error: "ID commande manquant" });
     }
 
     if (photoFiles.length === 0) {
+        console.error("❌ Aucune photo reçue");
         return res.status(400).json({ error: "Au moins une photo obligatoire" });
     }
 
     // Vérifier la taille de chaque photo
     for (const photo of photoFiles) {
-        if (photo.size > 5 * 1024 * 1024) {
-            return res.status(400).json({ error: "Une photo dépasse 5MB" });
+        if (photo.size > 10 * 1024 * 1024) {
+            return res.status(400).json({ error: "Une photo dépasse 10MB" });
         }
     }
 
     try {
-        // 1. Vérifier la commande
+        // 1. Vérifier que la commande existe
         console.log("🔍 Vérification commande:", commandeId);
         const { data: commande, error: checkErr } = await supabase
             .from("commandes_meds")
@@ -305,13 +320,19 @@ router.post("/:id/deliver", middleware(["AIDANT"]), upload.array('photos', 5), a
             return res.status(400).json({ error: "Commande déjà livrée" });
         }
 
-        // 2. Upload des photos
-        console.log("📤 Upload des photos vers Supabase...");
+        // 2. Upload des photos vers Supabase Storage
+        console.log("📤 Upload des photos vers Supabase Storage...");
         const uploadedPhotos = [];
         
         for (let i = 0; i < photoFiles.length; i++) {
             const photo = photoFiles[i];
-            const fileName = `livraisons/${commandeId}_${Date.now()}_${i}_${Math.random().toString(36).substring(7)}.jpg`;
+            // Générer un nom de fichier unique
+            const timestamp = Date.now();
+            const random = Math.random().toString(36).substring(7);
+            const extension = photo.originalname.split('.').pop() || 'jpg';
+            const fileName = `livraisons/${commandeId}_${timestamp}_${i}_${random}.${extension}`;
+            
+            console.log(`📸 Upload fichier ${i+1}/${photoFiles.length}: ${fileName}`);
             
             const { error: uploadError } = await supabase.storage
                 .from("preuves")
@@ -329,23 +350,30 @@ router.post("/:id/deliver", middleware(["AIDANT"]), upload.array('photos', 5), a
                 throw new Error("Upload échoué: " + uploadError.message);
             }
             
+            // Récupérer l'URL publique
             const { data: urlData } = supabase.storage.from("preuves").getPublicUrl(fileName);
             uploadedPhotos.push(urlData.publicUrl);
+            console.log(`✅ Upload réussi: ${urlData.publicUrl}`);
         }
         
-        console.log(`📸 ${uploadedPhotos.length} photos uploadées`);
+        console.log(`📸 ${uploadedPhotos.length} photos uploadées avec succès`);
+        console.log("📸 URLs:", uploadedPhotos);
 
-        // 3. Mettre à jour la commande
-        console.log("📝 Mise à jour commande...");
+        // 3. Mettre à jour la commande dans la base de données
+        console.log("📝 Mise à jour de la commande dans Supabase...");
+        const updateData = {
+            aidant_id: req.user.userId,
+            statut: "Livrée",
+            date_livraison: new Date().toISOString(),
+            photos_livraison: uploadedPhotos,  // ✅ Tableau d'URLs
+            notes_livraison: notes_livraison || null
+        };
+        
+        console.log("📝 Update data:", updateData);
+        
         const { error: updateError } = await supabase
             .from("commandes_meds")
-            .update({
-                aidant_id: req.user.userId,
-                statut: "Livrée",
-                date_livraison: new Date().toISOString(),
-                photos_livraison: uploadedPhotos,
-                notes_livraison: notes_livraison || null
-            })
+            .update(updateData)
             .eq("id", commandeId);
         
         if (updateError) {
@@ -353,60 +381,40 @@ router.post("/:id/deliver", middleware(["AIDANT"]), upload.array('photos', 5), a
             throw new Error("Mise à jour échouée: " + updateError.message);
         }
 
-        // 4. Récupérer patient et envoyer notification
+        // 4. Vérifier que les données ont bien été sauvegardées
+        const { data: updatedCommande, error: verifyError } = await supabase
+            .from("commandes_meds")
+            .select("photos_livraison")
+            .eq("id", commandeId)
+            .single();
+        
+        if (!verifyError && updatedCommande) {
+            console.log("✅ Vérification après update - photos_livraison:", updatedCommande.photos_livraison);
+        }
+
+        // 5. Notifications (optionnel)
         const { data: patient, error: patientErr } = await supabase
             .from("patients")
             .select("nom_complet, famille_user_id")
             .eq("id", commande.patient_id)
             .single();
 
-        if (!patientErr && patient) {
-            // Ajouter la première photo au feed
-            if (uploadedPhotos.length > 0) {
-                await supabase.from("messages").insert([{
-                    patient_id: commande.patient_id,
-                    sender_id: req.user.userId,
-                    content: uploadedPhotos[0],
-                    is_photo: true,
-                    type_media: 'DOCUMENT',
-                    titre_media: `Livraison - ${patient.nom_complet}`
-                }]);
-            }
-
-            // Notification push à la famille
-            if (patient.famille_user_id) {
-                try {
-                    await sendPushNotification(
-                        patient.famille_user_id,
-                        "📦 Commande livrée",
-                        `Votre commande pour ${patient.nom_complet} a été livrée.`,
-                        "/#commandes"
-                    );
-                } catch (pushErr) {
-                    console.warn("⚠️ Push notification échouée:", pushErr.message);
-                }
-            }
-        }
-
-        // 5. Notifier les coordinateurs
-        const { data: coordinators } = await supabase
-            .from("profiles")
-            .select("id")
-            .eq("role", "COORDINATEUR");
-        
-        if (coordinators) {
-            coordinators.forEach(coord => {
-                sendPushNotification(
-                    coord.id,
-                    "📦 Livraison effectuée",
-                    `${patient?.nom_complet || "Un patient"} - Une livraison a été effectuée.`,
+        if (!patientErr && patient && patient.famille_user_id) {
+            try {
+                await sendPushNotification(
+                    patient.famille_user_id,
+                    "📦 Commande livrée",
+                    `Votre commande pour ${patient.nom_complet} a été livrée.`,
                     "/#commandes"
                 );
-            });
+            } catch (pushErr) {
+                console.warn("⚠️ Push notification échouée:", pushErr.message);
+            }
         }
 
         console.log("✅ Livraison confirmée pour commande:", commandeId);
-        res.json({ 
+        res.status(200).json({ 
+            success: true,
             status: "success", 
             message: "Livraison confirmée", 
             photos: uploadedPhotos 
