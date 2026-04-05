@@ -253,9 +253,7 @@ router.post("/validate", middleware(["COORDINATEUR"]), async (req, res) => {
 });
 
 
-/**
- * 📦 3. FINALISER LA LIVRAISON (Aidant)
- */
+
 /**
  * 📦 AIDANT LIVRE LA COMMANDE (avec plusieurs photos)
  */
@@ -267,6 +265,8 @@ router.post("/:id/deliver", middleware(["AIDANT"]), upload.array('photos', 5), a
     const commandeId = req.params.id; 
     const { notes_livraison } = req.body;
     const photoFiles = req.files || [];
+
+        console.log("📸 Photos reçues:", photoFiles?.length || 0);
     
     if (!commandeId) {  // ✅ CORRECTION : utiliser la bonne variable
         return res.status(400).json({ error: "ID commande manquant" });
