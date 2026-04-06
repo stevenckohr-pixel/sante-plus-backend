@@ -245,4 +245,50 @@ router.get("/active", middleware(["COORDINATEUR"]), async (req, res) => {
   }
 });
 
+
+/**
+ * 🗑️ SUPPRIMER UNE ASSIGNATION (Délier aidant-patient)
+ */
+router.delete("/:id", middleware(["COORDINATEUR"]), async (req, res) => {
+    const { id } = req.params;
+    
+    console.log("🗑️ Suppression assignation:", id);
+    
+    if (!id) {
+        return res.status(400).json({ error: "ID requis" });
+    }
+    
+    try {
+        // Vérifier si l'assignation existe
+        const { data: existing, error: checkError } = await supabase
+            .from("planning")
+            .select("id")
+            .eq("id", id)
+            .single();
+        
+        if (checkError || !existing) {
+            return res.status(404).json({ error: "Assignation introuvable" });
+        }
+        
+        // Supprimer l'assignation
+        const { error: deleteError } = await supabase
+            .from("planning")
+            .delete()
+            .eq("id", id);
+        
+        if (deleteError) {
+            console.error("❌ Erreur suppression:", deleteError);
+            return res.status(500).json({ error: deleteError.message });
+        }
+        
+        console.log("✅ Assignation supprimée:", id);
+        res.json({ success: true, message: "Assignation supprimée" });
+        
+    } catch (err) {
+        console.error("❌ Erreur:", err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+
 module.exports = router;
