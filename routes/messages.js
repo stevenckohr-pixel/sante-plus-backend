@@ -3,11 +3,13 @@ const router = express.Router();
 const supabase = require("../supabaseClient");
 const middleware = require("../middleware");
 const { sendPushNotification } = require("../utils");  
-const { createNotification } = require("./notifications");  
-/**
- * 📥 1. LIRE LE FIL D'ACTUALITÉ (Live Care Feed)
- * Récupère les messages et photos liés à un patient précis.
- */
+const { createNotification } = require("./notifications");
+const multer = require("multer");
+const upload = multer({ storage: multer.memoryStorage() });
+
+// ============================================================
+// 📥 1. LIRE LE FIL D'ACTUALITÉ (MODIFIÉ pour inclure reply_to_id)
+// ============================================================
 router.get(
   "/",
   middleware(["COORDINATEUR", "AIDANT", "FAMILLE"]),
@@ -19,7 +21,6 @@ router.get(
     }
 
     try {
-      // On récupère les messages avec les infos de l'expéditeur (Jointure SQL)
       const { data, error } = await supabase
           .from("messages")
           .select(`
@@ -31,11 +32,12 @@ router.get(
 
       if (error) throw error;
 
-      // On nettoie les données pour le Frontend
       const cleanedMessages = data.map((m) => ({
         id: m.id,
         content: m.content,
         is_photo: m.is_photo,
+        photo_url: m.photo_url || null,           // ✅ NOUVEAU
+        reply_to_id: m.reply_to_id || null,       // ✅ NOUVEAU
         reactions: m.reactions || {},
         created_at: m.created_at,
         sender_name: m.sender ? m.sender.nom : "Système",
@@ -50,9 +52,9 @@ router.get(
   },
 );
 
-/**
- * ❤️ 2. AJOUTER UNE RÉACTION (Cœur, Merci, etc.)
- */
+// ============================================================
+// ❤️ 2. AJOUTER UNE RÉACTION (INCHANGÉ)
+// ============================================================
 router.post(
   "/react",
   middleware(["FAMILLE", "COORDINATEUR"]),
@@ -60,7 +62,6 @@ router.post(
     const { message_id, reaction_type } = req.body;
 
     try {
-      // 1. Récupération des réactions actuelles
       const { data: msg, error: fetchErr } = await supabase
         .from("messages")
         .select("reactions")
@@ -70,11 +71,8 @@ router.post(
       if (fetchErr) throw fetchErr;
 
       let reactions = msg.reactions || {};
-
-      // 2. Incrémentation propre
       reactions[reaction_type] = (reactions[reaction_type] || 0) + 1;
 
-      // 3. Mise à jour en base
       const { error: updateErr } = await supabase
         .from("messages")
         .update({ reactions })
@@ -89,25 +87,20 @@ router.post(
   },
 );
 
-/**
- * ✉️ 3. ENVOYER UN MESSAGE OU UNE PHOTO
- * Autorisé pour les Aidants (terrain) et les Coordinateurs.
- */
+// ============================================================
+// ✉️ 3. ENVOYER UN MESSAGE TEXTE (INCHANGÉ mais avec reply_to_id optionnel)
+// ============================================================
 router.post(
     "/send",
     middleware(["COORDINATEUR", "AIDANT", "FAMILLE"]),
     async (req, res) => {
-        const { patient_id, content, is_photo, type_media, titre_media } = req.body;
+        const { patient_id, content, is_photo, type_media, titre_media, reply_to_id } = req.body;
 
         if (!content) {
             return res.status(400).json({ error: "Le contenu est vide" });
         }
 
-        // ============================================
-        // 🛡️ SÉCURITÉ : Vérifications selon le rôle
-        // ============================================
-
-        // Pour la FAMILLE : le patient doit lui appartenir
+        // Sécurité inchangée
         if (req.user.role === "FAMILLE") {
             const { data: patient, error } = await supabase
                 .from("patients")
@@ -123,7 +116,6 @@ router.post(
             }
         }
 
-        // Pour l'AIDANT : il doit être assigné à ce patient dans le planning
         if (req.user.role === "AIDANT") {
             const { data: planning, error } = await supabase
                 .from("planning")
@@ -137,24 +129,8 @@ router.post(
                     error: "Vous n'êtes pas autorisé à envoyer un message à ce patient" 
                 });
             }
-
-            // Vérifier si l'aidant a une visite en cours pour ce patient
-            const { data: activeVisit, error: visitErr } = await supabase
-                .from("visites")
-                .select("id")
-                .eq("patient_id", patient_id)
-                .eq("aidant_id", req.user.userId)
-                .eq("statut", "En cours")
-                .maybeSingle();
-
-            // Pas d'erreur si pas de visite, juste on ne bloque pas
         }
 
-        // Pour le COORDINATEUR : pas de restriction (peut tout faire)
-
-        // ============================================
-        // INSERTION DU MESSAGE
-        // ============================================
         try {
             const messageData = {
                 patient_id,
@@ -164,17 +140,14 @@ router.post(
                 reactions: {},
             };
 
-            // Ajouter les champs optionnels si présents
             if (type_media) messageData.type_media = type_media;
             if (titre_media) messageData.titre_media = titre_media;
+            if (reply_to_id) messageData.reply_to_id = reply_to_id;  // ✅ NOUVEAU
 
             const { error } = await supabase.from("messages").insert([messageData]);
 
             if (error) throw error;
 
-            // ============================================
-            // NOTIFICATION PUSH aux membres de la famille
-            // ============================================
             const { data: patient } = await supabase
                 .from("patients")
                 .select("famille_user_id, nom_complet")
@@ -182,7 +155,6 @@ router.post(
                 .single();
 
             if (patient && patient.famille_user_id && req.user.role !== "FAMILLE") {
-                // Ne pas notifier la famille si c'est elle qui envoie le message
                 let notificationTitle = "📝 Nouveau message";
                 let notificationBody = `Nouveau message dans le journal de ${patient.nom_complet}`;
 
@@ -212,4 +184,108 @@ router.post(
         }
     }
 );
+
+// ============================================================
+// 📸 4. ENVOYER UNE PHOTO (NOUVELLE ROUTE - AJOUTÉE)
+// ============================================================
+router.post(
+    "/send-photo",
+    middleware(["COORDINATEUR", "AIDANT", "FAMILLE"]),
+    upload.single("photo"),
+    async (req, res) => {
+        const { patient_id, reply_to_id, caption } = req.body;
+        const photoFile = req.file;
+
+        if (!photoFile) {
+            return res.status(400).json({ error: "Photo requise" });
+        }
+
+        if (!patient_id) {
+            return res.status(400).json({ error: "ID patient requis" });
+        }
+
+        // Mêmes vérifications de sécurité que /send
+        if (req.user.role === "FAMILLE") {
+            const { data: patient, error } = await supabase
+                .from("patients")
+                .select("id")
+                .eq("id", patient_id)
+                .eq("famille_user_id", req.user.userId)
+                .single();
+
+            if (error || !patient) {
+                return res.status(403).json({ error: "Action non autorisée" });
+            }
+        }
+
+        if (req.user.role === "AIDANT") {
+            const { data: planning, error } = await supabase
+                .from("planning")
+                .select("id")
+                .eq("patient_id", patient_id)
+                .eq("aidant_id", req.user.userId)
+                .maybeSingle();
+
+            if (error || !planning) {
+                return res.status(403).json({ error: "Vous n'êtes pas assigné à ce patient" });
+            }
+        }
+
+        try {
+            // Upload vers Supabase Storage
+            const fileName = `messages/${patient_id}/${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
+            
+            const { error: uploadError } = await supabase.storage
+                .from("preuves")
+                .upload(fileName, photoFile.buffer, {
+                    contentType: photoFile.mimetype || "image/jpeg",
+                    upsert: false,
+                });
+
+            if (uploadError) throw uploadError;
+
+            const { data: urlData } = supabase.storage.from("preuves").getPublicUrl(fileName);
+            const photoUrl = urlData.publicUrl;
+
+            // Insertion du message (is_photo = true)
+            const messageData = {
+                patient_id,
+                sender_id: req.user.userId,
+                content: caption || "",
+                photo_url: photoUrl,
+                is_photo: true,
+                type_media: "PHOTO",
+                reply_to_id: reply_to_id || null,
+                reactions: {},
+            };
+
+            const { error: insertError } = await supabase.from("messages").insert([messageData]);
+
+            if (insertError) throw insertError;
+
+            // Notification
+            const { data: patient } = await supabase
+                .from("patients")
+                .select("famille_user_id, nom_complet")
+                .eq("id", patient_id)
+                .single();
+
+            if (patient && patient.famille_user_id && req.user.role !== "FAMILLE") {
+                sendPushNotification(
+                    patient.famille_user_id,
+                    "📸 Nouvelle photo",
+                    `Une nouvelle photo a été ajoutée au journal de ${patient.nom_complet}`,
+                    "/#feed"
+                );
+            }
+
+            res.json({ status: "success", photo_url: photoUrl });
+
+        } catch (err) {
+            console.error("❌ Erreur envoi photo:", err.message);
+            res.status(500).json({ error: err.message });
+        }
+    }
+);
+
 module.exports = router;
