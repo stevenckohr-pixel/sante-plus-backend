@@ -1,3 +1,5 @@
+// backend/routes/messages.js - VERSION COMPLÈTE AVEC LA ROUTE PHOTO
+
 const express = require("express");
 const router = express.Router();
 const supabase = require("../supabaseClient");
@@ -8,7 +10,7 @@ const multer = require("multer");
 const upload = multer({ storage: multer.memoryStorage() });
 
 // ============================================================
-// 📥 1. LIRE LE FIL D'ACTUALITÉ (MODIFIÉ pour inclure reply_to_id)
+// 📥 1. LIRE LE FIL D'ACTUALITÉ
 // ============================================================
 router.get(
   "/",
@@ -36,8 +38,8 @@ router.get(
         id: m.id,
         content: m.content,
         is_photo: m.is_photo,
-        photo_url: m.photo_url || null,           // ✅ NOUVEAU
-        reply_to_id: m.reply_to_id || null,       // ✅ NOUVEAU
+        photo_url: m.photo_url || null,
+        reply_to_id: m.reply_to_id || null,
         reactions: m.reactions || {},
         created_at: m.created_at,
         sender_name: m.sender ? m.sender.nom : "Système",
@@ -53,7 +55,7 @@ router.get(
 );
 
 // ============================================================
-// ❤️ 2. AJOUTER UNE RÉACTION (INCHANGÉ)
+// ❤️ 2. AJOUTER UNE RÉACTION
 // ============================================================
 router.post(
   "/react",
@@ -88,7 +90,7 @@ router.post(
 );
 
 // ============================================================
-// ✉️ 3. ENVOYER UN MESSAGE TEXTE (INCHANGÉ mais avec reply_to_id optionnel)
+// ✉️ 3. ENVOYER UN MESSAGE TEXTE
 // ============================================================
 router.post(
     "/send",
@@ -100,7 +102,6 @@ router.post(
             return res.status(400).json({ error: "Le contenu est vide" });
         }
 
-        // Sécurité inchangée
         if (req.user.role === "FAMILLE") {
             const { data: patient, error } = await supabase
                 .from("patients")
@@ -110,9 +111,7 @@ router.post(
                 .single();
 
             if (error || !patient) {
-                return res.status(403).json({ 
-                    error: "Vous ne pouvez pas écrire sur ce dossier" 
-                });
+                return res.status(403).json({ error: "Vous ne pouvez pas écrire sur ce dossier" });
             }
         }
 
@@ -125,9 +124,7 @@ router.post(
                 .maybeSingle();
 
             if (error || !planning) {
-                return res.status(403).json({ 
-                    error: "Vous n'êtes pas autorisé à envoyer un message à ce patient" 
-                });
+                return res.status(403).json({ error: "Vous n'êtes pas autorisé à envoyer un message à ce patient" });
             }
         }
 
@@ -142,7 +139,7 @@ router.post(
 
             if (type_media) messageData.type_media = type_media;
             if (titre_media) messageData.titre_media = titre_media;
-            if (reply_to_id) messageData.reply_to_id = reply_to_id;  // ✅ NOUVEAU
+            if (reply_to_id) messageData.reply_to_id = reply_to_id;
 
             const { error } = await supabase.from("messages").insert([messageData]);
 
@@ -186,54 +183,62 @@ router.post(
 );
 
 // ============================================================
-// 📸 4. ENVOYER UNE PHOTO (NOUVELLE ROUTE - AJOUTÉE)
+// 📸 4. ENVOYER UNE PHOTO (NOUVELLE ROUTE)
 // ============================================================
 router.post(
     "/send-photo",
     middleware(["COORDINATEUR", "AIDANT", "FAMILLE"]),
     upload.single("photo"),
     async (req, res) => {
+        console.log("🔵 [send-photo] Route appelée");
+        console.log("🔵 Body:", req.body);
+        console.log("🔵 File:", req.file ? req.file.originalname : "AUCUN FICHIER");
+        
         const { patient_id, reply_to_id, caption } = req.body;
         const photoFile = req.file;
 
         if (!photoFile) {
+            console.error("❌ Aucune photo reçue");
             return res.status(400).json({ error: "Photo requise" });
         }
 
         if (!patient_id) {
+            console.error("❌ patient_id manquant");
             return res.status(400).json({ error: "ID patient requis" });
         }
 
-        // Mêmes vérifications de sécurité que /send
-        if (req.user.role === "FAMILLE") {
-            const { data: patient, error } = await supabase
-                .from("patients")
-                .select("id")
-                .eq("id", patient_id)
-                .eq("famille_user_id", req.user.userId)
-                .single();
-
-            if (error || !patient) {
-                return res.status(403).json({ error: "Action non autorisée" });
-            }
-        }
-
-        if (req.user.role === "AIDANT") {
-            const { data: planning, error } = await supabase
-                .from("planning")
-                .select("id")
-                .eq("patient_id", patient_id)
-                .eq("aidant_id", req.user.userId)
-                .maybeSingle();
-
-            if (error || !planning) {
-                return res.status(403).json({ error: "Vous n'êtes pas assigné à ce patient" });
-            }
-        }
-
+        // Vérifications de sécurité
         try {
+            if (req.user.role === "FAMILLE") {
+                const { data: patient, error } = await supabase
+                    .from("patients")
+                    .select("id")
+                    .eq("id", patient_id)
+                    .eq("famille_user_id", req.user.userId)
+                    .single();
+
+                if (error || !patient) {
+                    return res.status(403).json({ error: "Action non autorisée" });
+                }
+            }
+
+            if (req.user.role === "AIDANT") {
+                const { data: planning, error } = await supabase
+                    .from("planning")
+                    .select("id")
+                    .eq("patient_id", patient_id)
+                    .eq("aidant_id", req.user.userId)
+                    .maybeSingle();
+
+                if (error || !planning) {
+                    return res.status(403).json({ error: "Vous n'êtes pas assigné à ce patient" });
+                }
+            }
+
             // Upload vers Supabase Storage
             const fileName = `messages/${patient_id}/${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
+            
+            console.log("📤 Upload vers:", fileName);
             
             const { error: uploadError } = await supabase.storage
                 .from("preuves")
@@ -242,12 +247,17 @@ router.post(
                     upsert: false,
                 });
 
-            if (uploadError) throw uploadError;
+            if (uploadError) {
+                console.error("❌ Erreur upload:", uploadError);
+                throw uploadError;
+            }
 
             const { data: urlData } = supabase.storage.from("preuves").getPublicUrl(fileName);
             const photoUrl = urlData.publicUrl;
+            
+            console.log("✅ Photo uploadée:", photoUrl);
 
-            // Insertion du message (is_photo = true)
+            // Insertion du message
             const messageData = {
                 patient_id,
                 sender_id: req.user.userId,
@@ -261,9 +271,12 @@ router.post(
 
             const { error: insertError } = await supabase.from("messages").insert([messageData]);
 
-            if (insertError) throw insertError;
+            if (insertError) {
+                console.error("❌ Erreur insertion:", insertError);
+                throw insertError;
+            }
 
-            // Notification
+            // Notification à la famille
             const { data: patient } = await supabase
                 .from("patients")
                 .select("famille_user_id, nom_complet")
@@ -279,10 +292,11 @@ router.post(
                 );
             }
 
+            console.log("✅ Photo envoyée avec succès");
             res.json({ status: "success", photo_url: photoUrl });
 
         } catch (err) {
-            console.error("❌ Erreur envoi photo:", err.message);
+            console.error("❌ Erreur send-photo:", err.message);
             res.status(500).json({ error: err.message });
         }
     }
