@@ -288,4 +288,140 @@ router.post(
     }
 );
 
+
+// ============================================================
+// 📎 5. ENVOYER UN DOCUMENT (PDF, DOC, etc.)
+// ============================================================
+router.post(
+    "/send-document",
+    middleware(["COORDINATEUR", "AIDANT", "FAMILLE"]),
+    upload.single("document"),
+    async (req, res) => {
+        console.log("🔵 [send-document] Route appelée");
+        
+        const { patient_id, reply_to_id, type_media } = req.body;
+        const documentFile = req.file;
+
+        if (!documentFile) {
+            return res.status(400).json({ error: "Document requis" });
+        }
+
+        if (!patient_id) {
+            return res.status(400).json({ error: "ID patient requis" });
+        }
+
+        try {
+            // Vérifications de sécurité (identiques à send-photo)
+            if (req.user.role === "FAMILLE") {
+                const { data: patient, error } = await supabase
+                    .from("patients")
+                    .select("id")
+                    .eq("id", patient_id)
+                    .eq("famille_user_id", req.user.userId)
+                    .single();
+
+                if (error || !patient) {
+                    return res.status(403).json({ error: "Action non autorisée" });
+                }
+            }
+
+            if (req.user.role === "AIDANT") {
+                const { data: planning, error } = await supabase
+                    .from("planning")
+                    .select("id")
+                    .eq("patient_id", patient_id)
+                    .eq("aidant_id", req.user.userId)
+                    .maybeSingle();
+
+                if (error || !planning) {
+                    return res.status(403).json({ error: "Vous n'êtes pas assigné à ce patient" });
+                }
+            }
+
+            // Déterminer l'extension et le type
+            const originalName = documentFile.originalname;
+            const extension = originalName.split('.').pop();
+            const isPdf = documentFile.mimetype === 'application/pdf';
+            const isDoc = documentFile.mimetype === 'application/msword' || documentFile.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+            const isImage = documentFile.mimetype.startsWith('image/');
+            
+            // Upload vers Supabase Storage
+            const fileName = `documents/${patient_id}/${Date.now()}_${Math.random().toString(36).substring(7)}.${extension}`;
+            
+            const { error: uploadError } = await supabase.storage
+                .from("documents")
+                .upload(fileName, documentFile.buffer, {
+                    contentType: documentFile.mimetype,
+                    upsert: false,
+                });
+
+            if (uploadError) {
+                console.error("❌ Erreur upload:", uploadError);
+                throw uploadError;
+            }
+
+            const { data: urlData } = supabase.storage.from("documents").getPublicUrl(fileName);
+            const documentUrl = urlData.publicUrl;
+
+            // Déterminer l'icône pour l'affichage
+            let iconClass = 'fa-file-pdf';
+            let colorClass = 'text-red-500';
+            if (isDoc) {
+                iconClass = 'fa-file-word';
+                colorClass = 'text-blue-500';
+            } else if (isImage) {
+                iconClass = 'fa-file-image';
+                colorClass = 'text-green-500';
+            }
+
+            // Insertion du message
+            const messageData = {
+                patient_id,
+                sender_id: req.user.userId,
+                content: documentUrl,
+                photo_url: null,
+                is_photo: false,
+                type_media: "DOCUMENT",
+                titre_media: originalName,
+                reply_to_id: reply_to_id || null,
+                reactions: {},
+            };
+
+            const { error: insertError } = await supabase.from("messages").insert([messageData]);
+
+            if (insertError) throw insertError;
+
+            // Notification à la famille
+            const { data: patient } = await supabase
+                .from("patients")
+                .select("famille_user_id, nom_complet")
+                .eq("id", patient_id)
+                .single();
+
+            if (patient && patient.famille_user_id && req.user.role !== "FAMILLE") {
+                sendPushNotification(
+                    patient.famille_user_id,
+                    "📄 Nouveau document",
+                    `Un nouveau document a été ajouté au journal de ${patient.nom_complet}`,
+                    "/#feed"
+                );
+            }
+
+            res.json({ 
+                status: "success", 
+                document_url: documentUrl,
+                filename: originalName,
+                icon: iconClass,
+                color: colorClass
+            });
+
+        } catch (err) {
+            console.error("❌ Erreur send-document:", err.message);
+            res.status(500).json({ error: err.message });
+        }
+    }
+);
+
+
+
 module.exports = router;
