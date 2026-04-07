@@ -66,8 +66,8 @@ app.use("/api/aidants", aidantRoutes);
 app.use("/api/patients", patientRoutes);
 app.use("/api/assignments", assignmentRoutes);
 app.use("/api/visites", visitesRoutes);
-app.use("/api/messages", upload.any(), messagesRoutes); // messages a besoin de upload
-app.use("/api/commandes", commandesRoutes); // commandes gère son propre upload
+app.use("/api/messages", messagesRoutes);  // ← SUPPRIMEZ upload.any()
+app.use("/api/commandes", commandesRoutes);
 app.use("/api/planning", planningRoutes);
 app.use("/api/notifications", notificationsRoutes);
 
