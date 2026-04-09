@@ -757,4 +757,74 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
 
     return R * c;
 }
+
+
+
+// backend/routes/notifications.js ou dans visites.js
+router.post("/send", middleware(), async (req, res) => {
+    const { userId, title, message, type, url } = req.body;
+    
+    try {
+        // Créer la notification dans la base
+        await supabase.from("notifications").insert({
+            user_id: userId,
+            title,
+            message,
+            type: type || "visit",
+            url: url || "/",
+            read: false,
+            created_at: new Date()
+        });
+        
+        // Envoyer la notification push
+        const { sendPushNotification } = require("../utils");
+        await sendPushNotification(userId, title, message, url);
+        
+        res.json({ status: "success" });
+    } catch (err) {
+        console.error("Erreur envoi notification:", err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+
+
+
+router.get("/", middleware(["COORDINATEUR", "AIDANT", "FAMILLE"]), async (req, res) => {
+    try {
+        let query = supabase.from("visites").select(`
+            *,
+            patient:patient_id (id, nom_complet, adresse),
+            aidant:aidant_id (id, nom, photo_url)
+        `);
+
+        if (req.user.role === "AIDANT") {
+            query = query.eq("aidant_id", req.user.userId);
+        } 
+        else if (req.user.role === "FAMILLE") {
+            const { data: patients } = await supabase
+                .from("patients")
+                .select("id")
+                .eq("famille_user_id", req.user.userId);
+            
+            if (!patients || patients.length === 0) {
+                return res.json([]);
+            }
+            
+            const patientIds = patients.map(p => p.id);
+            
+            // ✅ LA FAMILLE VOIT TOUTES LES VISITES (En cours + En attente + Validé)
+            query = query.in("patient_id", patientIds);
+            // Pas de filtre sur statut → elle voit tout
+        }
+
+        const { data, error } = await query.order("heure_debut", { ascending: false });
+        if (error) throw error;
+        res.json(data || []);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+
 module.exports = router;
