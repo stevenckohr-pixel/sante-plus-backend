@@ -57,12 +57,12 @@ router.post("/start", middleware(["AIDANT"]), async (req, res) => {
 
         if (existingErr) throw existingErr;
 
-            if (existingVisit) {
-                return res.status(400).json({ 
-                    error: "Une visite est déjà en cours",
-                    visite_id: existingVisit.id  
-                });
-            }
+        if (existingVisit) {
+            return res.status(400).json({ 
+                error: "Une visite est déjà en cours",
+                visite_id: existingVisit.id  
+            });
+        }
 
         // Créer la visite
         const { data: visite, error } = await supabase
@@ -91,7 +91,26 @@ router.post("/start", middleware(["AIDANT"]), async (req, res) => {
                 .eq("id", planning.id);
         }
 
-        // Notifier la famille
+        // ✅ AJOUTE ICI - Envoyer l'événement Realtime à TOUS les clients
+        try {
+            await supabase.channel('visites-updates').send({
+                type: 'broadcast',
+                event: 'visite_updated',
+                payload: {
+                    id: visite.id,
+                    patient_id: visite.patient_id,
+                    statut: "En cours",
+                    action: "started",
+                    patient_nom: visite.patient?.nom_complet,
+                    updated_at: new Date().toISOString()
+                }
+            });
+            console.log("📡 [REALTIME] Événement 'visite_started' envoyé");
+        } catch (realtimeErr) {
+            console.warn("⚠️ Erreur envoi Realtime:", realtimeErr.message);
+        }
+
+        // Notifier la famille (push notification)
         if (visite.patient && visite.patient.famille_user_id) {
             await sendPushNotification(
                 visite.patient.famille_user_id,
@@ -123,7 +142,7 @@ router.post("/start", middleware(["AIDANT"]), async (req, res) => {
 // ============================================================
 router.post("/end", middleware(["AIDANT"]), upload.single('photo_visite'), async (req, res) => {
     const { visite_id, activites_faites, notes, gps_end, humeur } = req.body;
-    const photoFile = req.file;  // ← upload.single donne req.file, pas req.files
+    const photoFile = req.file;
 
     if (!photoFile) return res.status(400).json({ error: "Photo obligatoire." });
 
@@ -167,6 +186,21 @@ router.post("/end", middleware(["AIDANT"]), upload.single('photo_visite'), async
             is_photo: false
         }]);
 
+        // ✅ AJOUTE ICI - Envoyer l'événement Realtime
+        await supabase.channel('visites-updates').send({
+            type: 'broadcast',
+            event: 'visite_updated',
+            payload: {
+                id: v.id,
+                patient_id: v.patient_id,
+                statut: "En attente",
+                action: "ended",
+                photo_url: photoUrl,
+                updated_at: new Date().toISOString()
+            }
+        });
+        console.log("📡 [REALTIME] Événement 'visite_ended' envoyé");
+
         if (v.patient && v.patient.famille_user_id) {
             await sendPushNotification(
                 v.patient.famille_user_id,
@@ -206,6 +240,25 @@ router.post("/validate", middleware(["COORDINATEUR"]), async (req, res) => {
 
         if (error) throw error;
 
+        // ✅ AJOUTE ICI - Envoyer l'événement Realtime à TOUS les clients
+        try {
+            await supabase.channel('visites-updates').send({
+                type: 'broadcast',
+                event: 'visite_updated',
+                payload: {
+                    id: visite.id,
+                    patient_id: visite.patient_id,
+                    statut: statut,
+                    action: statut === "Validé" ? "validated" : "rejected",
+                    patient_nom: visite.patient?.nom_complet,
+                    updated_at: new Date().toISOString()
+                }
+            });
+            console.log(`📡 [REALTIME] Événement 'visite_${statut === "Validé" ? "validated" : "rejected"}' envoyé`);
+        } catch (realtimeErr) {
+            console.warn("⚠️ Erreur envoi Realtime:", realtimeErr.message);
+        }
+
         if (statut === "Validé" && visite.patient.famille_user_id) {
             await sendPushNotification(
                 visite.patient.famille_user_id,
@@ -225,10 +278,10 @@ router.post("/validate", middleware(["COORDINATEUR"]), async (req, res) => {
 
         res.json({ status: "success" });
     } catch (err) {
+        console.error("❌ Erreur validation:", err.message);
         res.status(500).json({ error: err.message });
     }
 });
-
 // ============================================================
 // 📂 4. LIRE LES VISITES (Filtrage)
 // ============================================================
