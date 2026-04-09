@@ -880,4 +880,29 @@ router.get("/", middleware(["COORDINATEUR", "AIDANT", "FAMILLE"]), async (req, r
 });
 
 
+// ROUTE DE TEST REALTIME (à supprimer après test)
+router.post("/test-realtime", middleware(["COORDINATEUR"]), async (req, res) => {
+    try {
+        console.log("🧪 [TEST] Envoi d'un événement Realtime test...");
+        
+        const channel = supabase.channel('visites-updates');
+        
+        const result = await channel.send({
+            type: 'broadcast',
+            event: 'test_event',
+            payload: {
+                message: "Ceci est un test",
+                timestamp: new Date().toISOString()
+            }
+        });
+        
+        console.log("🧪 [TEST] Événement envoyé:", result);
+        res.json({ status: "success", message: "Test event sent" });
+        
+    } catch (err) {
+        console.error("❌ Erreur test:", err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 module.exports = router;
