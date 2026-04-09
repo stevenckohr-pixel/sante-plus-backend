@@ -49,6 +49,21 @@ router.post("/add", middleware(["COORDINATEUR", "FAMILLE"]), async (req, res) =>
         if (error) throw error;
         
         res.json({ status: "success", message: "Demande enregistrée." });
+
+
+                // Après avoir créé la commande
+        const channel = supabase.channel('commandes-updates');
+        await channel.send({
+            type: 'broadcast',
+            event: 'commande_updated',
+            payload: {
+                id: commande.id,
+                patient_id: patient_id,
+                statut: "En attente",
+                action: "created"
+            }
+        });
+   
     } catch (err) {
         console.error("❌ Erreur création commande:", err);
         res.status(500).json({ error: err.message });
@@ -82,6 +97,21 @@ router.post("/add", middleware(["COORDINATEUR", "FAMILLE"]), async (req, res) =>
         }
         
         res.json({ status: "success" });
+
+
+                // Après avoir créé la commande
+        const channel = supabase.channel('commandes-updates');
+        await channel.send({
+            type: 'broadcast',
+            event: 'commande_updated',
+            payload: {
+                id: commande.id,
+                patient_id: patient_id,
+                statut: "En attente",
+                action: "created"
+            }
+        });
+        
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
