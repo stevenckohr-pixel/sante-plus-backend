@@ -91,20 +91,20 @@ router.post("/start", middleware(["AIDANT"]), async (req, res) => {
                 .eq("id", planning.id);
         }
 
-        // ✅ AJOUTE ICI - Envoyer l'événement Realtime à TOUS les clients
         try {
-            await supabase.channel('visites-updates').send({
-                type: 'broadcast',
-                event: 'visite_updated',
-                payload: {
-                    id: visite.id,
-                    patient_id: visite.patient_id,
-                    statut: "En cours",
-                    action: "started",
-                    patient_nom: visite.patient?.nom_complet,
-                    updated_at: new Date().toISOString()
-                }
-            });
+                const channel = getRealtimeChannel();
+                await channel.send({
+                    type: 'broadcast',
+                    event: 'visite_updated',
+                    payload: {
+                        id: visite.id,
+                        patient_id: visite.patient_id,
+                        statut: "En cours",
+                        action: "started",
+                        patient_nom: visite.patient?.nom_complet,
+                        updated_at: new Date().toISOString()
+                    }
+                });
             console.log("📡 [REALTIME] Événement 'visite_started' envoyé");
         } catch (realtimeErr) {
             console.warn("⚠️ Erreur envoi Realtime:", realtimeErr.message);
@@ -187,15 +187,16 @@ router.post("/end", middleware(["AIDANT"]), upload.single('photo_visite'), async
         }]);
 
         // ✅ AJOUTE ICI - Envoyer l'événement Realtime
-        await supabase.channel('visites-updates').send({
+        const channel = getRealtimeChannel();
+        await channel.send({
             type: 'broadcast',
             event: 'visite_updated',
             payload: {
-                id: v.id,
-                patient_id: v.patient_id,
-                statut: "En attente",
-                action: "ended",
-                photo_url: photoUrl,
+                id: visite.id,
+                patient_id: visite.patient_id,
+                statut: "En cours",
+                action: "started",
+                patient_nom: visite.patient?.nom_complet,
                 updated_at: new Date().toISOString()
             }
         });
@@ -242,14 +243,15 @@ router.post("/validate", middleware(["COORDINATEUR"]), async (req, res) => {
 
         // ✅ AJOUTE ICI - Envoyer l'événement Realtime à TOUS les clients
         try {
-            await supabase.channel('visites-updates').send({
+            const channel = getRealtimeChannel();
+            await channel.send({
                 type: 'broadcast',
                 event: 'visite_updated',
                 payload: {
                     id: visite.id,
                     patient_id: visite.patient_id,
-                    statut: statut,
-                    action: statut === "Validé" ? "validated" : "rejected",
+                    statut: "En cours",
+                    action: "started",
                     patient_nom: visite.patient?.nom_complet,
                     updated_at: new Date().toISOString()
                 }
