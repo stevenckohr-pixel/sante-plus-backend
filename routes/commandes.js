@@ -4,6 +4,8 @@ const supabase = require("../supabaseClient");
 const middleware = require("../middleware");
 const { sendPushNotification } = require("../utils");
 const multer = require("multer");
+const { getRealtimeChannel } = require("../utils");
+
 
 const upload = multer({ 
     storage: multer.memoryStorage(),
@@ -34,17 +36,21 @@ router.post("/add", middleware(["COORDINATEUR", "FAMILLE"]), async (req, res) =>
     console.log("📦 Création commande - Images reçues:", images);
     
     try {
-        const { error } = await supabase.from("commandes_meds").insert([
-            {
-                patient_id,
-                demandeur_id: req.user.userId,
-                liste_medocs,
-                type_commande: type_commande || 'AUTRE',
-                urgent: urgent || false,
-                images: images || [],  // ← tableau d'URLs
-                statut: "En attente",
-            },
-        ]);
+            const { data: commande, error } = await supabase
+                .from("commandes_meds")
+                .insert([
+                    {
+                        patient_id,
+                        demandeur_id: req.user.userId,
+                        liste_medocs,
+                        type_commande: type_commande || 'AUTRE',
+                        urgent: urgent || false,
+                        images: images || [],
+                        statut: "En attente",
+                    },
+                ])
+                .select()
+                .single();
 
         if (error) throw error;
         
@@ -52,13 +58,14 @@ router.post("/add", middleware(["COORDINATEUR", "FAMILLE"]), async (req, res) =>
 
 
                 // Après avoir créé la commande
-        const channel = supabase.channel('commandes-updates');
+        const channel = getRealtimeChannel();
+        
         await channel.send({
             type: 'broadcast',
             event: 'commande_updated',
             payload: {
                 id: commande.id,
-                patient_id: patient_id,
+                patient_id: commande.patient_id,
                 statut: "En attente",
                 action: "created"
             }
@@ -100,15 +107,16 @@ router.post("/add", middleware(["COORDINATEUR", "FAMILLE"]), async (req, res) =>
 
 
                 // Après avoir créé la commande
-        const channel = supabase.channel('commandes-updates');
+
+        const channel = getRealtimeChannel();
         await channel.send({
             type: 'broadcast',
             event: 'commande_updated',
             payload: {
                 id: commande.id,
-                patient_id: patient_id,
-                statut: "En attente",
-                action: "created"
+                patient_id: commande.patient_id,
+                statut: "En cours de livraison",
+                action: "accepted"
             }
         });
         
@@ -513,60 +521,7 @@ router.post("/validate-all", middleware(["COORDINATEUR"]), async (req, res) => {
 /**
  * ⏰ AUTO-ASSIGNATION DES COMMANDES (appelé par cron)
  */
-async function autoAssignPendingCommands() {
-    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
-    
-    // Commandes en attente depuis plus de 10min
-    const { data: pendingCommands, error: fetchError } = await supabase
-        .from("commandes_meds")
-        .select("id, patient_id, urgent")
-        .eq("statut", "En attente")
-        .lt("created_at", tenMinutesAgo);
-    
-    if (fetchError || !pendingCommands?.length) {
-        console.log("📦 Aucune commande à assigner automatiquement");
-        return;
-    }
-    
-    console.log(`📦 ${pendingCommands.length} commande(s) à assigner auto`);
-    
-    for (const cmd of pendingCommands) {
-        // Trouver les aidants disponibles pour ce patient
-        const { data: availableAidants } = await supabase
-            .from("planning")
-            .select("aidant_id, aidant:profiles!aidant_id(nom)")
-            .eq("patient_id", cmd.patient_id)
-            .eq("est_actif", true);
-        
-        if (availableAidants?.length) {
-            const aidantId = availableAidants[0].aidant_id;
-            const aidantNom = availableAidants[0].aidant?.nom;
-            
-            // Assigner automatiquement
-            await supabase
-                .from("commandes_meds")
-                .update({ 
-                    aidant_id: aidantId,
-                    statut: "En cours",
-                    auto_assigned: true,
-                    auto_assigned_at: new Date().toISOString()
-                })
-                .eq("id", cmd.id);
-            
-            // Notifier l'aidant
-            await sendPushNotification(
-                aidantId,
-                cmd.urgent ? "⚠️ Commande urgente (auto-assignée)" : "📦 Nouvelle commande (auto-assignée)",
-                `Une commande ${cmd.urgent ? "urgente " : ""}vous a été automatiquement assignée.`,
-                "/#commandes"
-            );
-            
-            console.log(`✅ Commande ${cmd.id} auto-assignée à ${aidantNom}`);
-        } else {
-            console.log(`⚠️ Aucun aidant disponible pour la commande ${cmd.id}`);
-        }
-    }
-}
+
 
 // Exposer la fonction pour le cron
 
