@@ -3,7 +3,10 @@ const express = require("express");
 const cors = require("cors");
 const multer = require("multer");
 
-const app = express();
+// ⚠️ IMPORTANT → assure-toi que ce fichier existe
+const supabase = require("./supabase");
+
+const app = express(); // ✅ DOIT ÊTRE AVANT LES ROUTES
 
 // ✅ Définir upload pour les routes qui en ont besoin
 const upload = multer({ storage: multer.memoryStorage() });
@@ -34,11 +37,37 @@ app.use(cors({
     credentials: true
 }));
 
+// ============================================================
+// 🔥 ROUTE PUSH (AJOUT SANS RIEN CASSER)
+// ============================================================
+app.post('/api/save-push-token', async (req, res) => {
+    try {
+        const { token, user_id } = req.body;
+
+        if (!token) {
+            return res.status(400).json({ error: "Token manquant" });
+        }
+
+        await supabase
+            .from('profiles')
+            .update({ push_token: token })
+            .eq('id', user_id);
+
+        console.log("🔥 Token sauvegardé:", user_id);
+
+        res.json({ success: true });
+
+    } catch (err) {
+        console.error("❌ Erreur save token:", err);
+        res.status(500).json({ error: "Erreur serveur" });
+    }
+});
+
 // Health check
 app.get("/", (req, res) => res.send("🚀 Santé Plus Services API opérationnelle"));
 
 // ============================================================
-// IMPORTS DES ROUTES
+// IMPORTS DES ROUTES (INTOUCHÉ)
 // ============================================================
 const authRoutes = require("./routes/auth");
 const billingRoutes = require("./routes/billing");
@@ -55,7 +84,7 @@ const commandesRoutes = require("./routes/commandes");
 const planningRoutes = require("./routes/planning");
 
 // ============================================================
-// BRANCHEMENT DES ROUTES
+// BRANCHEMENT DES ROUTES (INTOUCHÉ)
 // ============================================================
 
 app.use("/api/auth", authRoutes);
@@ -66,7 +95,7 @@ app.use("/api/aidants", aidantRoutes);
 app.use("/api/patients", patientRoutes);
 app.use("/api/assignments", assignmentRoutes);
 app.use("/api/visites", visitesRoutes);
-app.use("/api/messages", messagesRoutes);  // ← SUPPRIMEZ upload.any()
+app.use("/api/messages", messagesRoutes);
 app.use("/api/commandes", commandesRoutes);
 app.use("/api/planning", planningRoutes);
 app.use("/api/notifications", notificationsRoutes);
