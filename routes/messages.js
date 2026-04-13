@@ -162,21 +162,28 @@ router.post(
             // 🔔 =========================
             // 🔥 PUSH NOTIFICATION (AJOUT)
             // =========================
-            const { data: users } = await supabase
-                .from("profiles")
-                .select("push_token, id")
-                .neq("id", sender_id);
+const { data: users, error: usersError } = await supabase
+    .from("profiles")
+    .select("push_token, id")
+    .neq("id", sender_id);
 
-            for (const user of users) {
-                if (user.push_token) {
-                    await sendPush(
-                        user.push_token,
-                        "💬 Nouveau message",
-                        content || "📷 Photo"
-                    );
-                }
-            }
+if (usersError) {
+    console.error("❌ Erreur récupération users:", usersError);
+}
 
+if (users && users.length > 0) {
+    for (const user of users) {
+        if (user.push_token) {
+            await sendPush(
+                user.push_token,
+                "💬 Nouveau message",
+                content || "📷 Photo"
+            );
+        }
+    }
+} else {
+    console.log("⚠️ Aucun utilisateur à notifier");
+}
             // 🔔 =========================
             // 🔁 TON CODE EXISTANT (INTOUCHÉ)
             // =========================
