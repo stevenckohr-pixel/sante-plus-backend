@@ -6,6 +6,7 @@ const { sendPushNotification } = require("../utils");
 const { createNotification } = require("./notifications");
 const multer = require("multer");
 const upload = multer({ storage: multer.memoryStorage() });
+const { getRealtimeChannel } = require("../utils");
 
 
 // Optionnel : logger la structure pour vérifier
