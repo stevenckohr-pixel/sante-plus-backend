@@ -187,17 +187,16 @@ router.post("/end", middleware(["AIDANT"]), upload.single('photo_visite'), async
             is_photo: false
         }]);
 
-        // ✅ AJOUTE ICI - Envoyer l'événement Realtime
         const channel = getRealtimeChannel();
         await channel.send({
             type: 'broadcast',
             event: 'visite_updated',
             payload: {
-                id: visite.id,
-                patient_id: visite.patient_id,
-                statut: "En cours",
-                action: "started",
-                patient_nom: visite.patient?.nom_complet,
+                id: v.id,
+                patient_id: v.patient_id,
+                statut: "En attente",
+                action: "ended",
+                patient_nom: v.patient?.nom_complet,
                 updated_at: new Date().toISOString()
             }
         });
