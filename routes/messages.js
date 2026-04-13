@@ -289,7 +289,7 @@ router.post(
 );
 
 
-app.post('/messages/mark-read', async (req, res) => {
+router.post('/messages/mark-read', async (req, res) => {
     try {
         const { patient_id } = req.body;
 
