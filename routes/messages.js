@@ -289,6 +289,43 @@ router.post(
 );
 
 
+app.post('/messages/mark-read', async (req, res) => {
+    try {
+        const { patient_id } = req.body;
+
+        if (!patient_id) {
+            return res.status(400).json({ error: "patient_id requis" });
+        }
+
+        // ⚠️ adapte selon ton système auth
+        const userId = req.user?.id || req.body.user_id;
+
+        if (!userId) {
+            return res.status(401).json({ error: "Utilisateur non identifié" });
+        }
+
+        const { error } = await supabase
+            .from('messages')
+            .update({
+                read: true,
+                read_at: new Date().toISOString()
+            })
+            .eq('patient_id', patient_id)
+            .eq('read', false)
+            .neq('sender_id', userId);
+
+        if (error) throw error;
+
+        console.log("👁️ Messages marqués comme lus:", patient_id);
+
+        res.json({ success: true });
+
+    } catch (err) {
+        console.error("❌ mark-read error:", err);
+        res.status(500).json({ error: "Erreur serveur" });
+    }
+});
+
 // ============================================================
 // 📎 5. ENVOYER UN DOCUMENT (PDF, DOC, etc.)
 // ============================================================
