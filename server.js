@@ -3,10 +3,9 @@ const express = require("express");
 const cors = require("cors");
 const multer = require("multer");
 
-// ⚠️ IMPORTANT → assure-toi que ce fichier existe
-const supabase = require("./supabase");
+const supabase = require("./supabaseClient");
 
-const app = express(); // ✅ DOIT ÊTRE AVANT LES ROUTES
+const app = express(); 
 
 // ✅ Définir upload pour les routes qui en ont besoin
 const upload = multer({ storage: multer.memoryStorage() });
