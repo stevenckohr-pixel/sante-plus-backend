@@ -157,6 +157,29 @@ function calculateDiscountedPrice(basePrice, durationMonths) {
   return basePrice * durationMonths;
 }
 
+
+// ============================================================
+// 📡 REALTIME CHANNEL GLOBAL (BACKEND)
+// ============================================================
+
+let realtimeChannel = null;
+
+function getRealtimeChannel() {
+  if (!realtimeChannel) {
+    realtimeChannel = supabase.channel('global-channel');
+
+    realtimeChannel.subscribe((status) => {
+      console.log("📡 [Realtime Backend] Status:", status);
+    });
+  }
+
+  return realtimeChannel;
+}
+
+// EXPORTER LA FONCTION
+module.exports.getRealtimeChannel = getRealtimeChannel;
+
+
 // ============================================================
 // 📤 EXPORTS
 // ============================================================
