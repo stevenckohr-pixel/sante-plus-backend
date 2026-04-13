@@ -8,6 +8,8 @@ const { sendPushNotification } = require("../utils");
 const { createNotification } = require("./notifications");
 const multer = require("multer");
 const upload = multer({ storage: multer.memoryStorage() });
+const { sendPush } = require("../firebaseAdmin");
+
 
 // ============================================================
 // 📥 1. LIRE LE FIL D'ACTUALITÉ
@@ -92,6 +94,8 @@ router.post(
 // ============================================================
 // ✉️ 3. ENVOYER UN MESSAGE TEXTE
 // ============================================================
+
+
 router.post(
     "/send",
     middleware(["COORDINATEUR", "AIDANT", "FAMILLE"]),
@@ -100,6 +104,13 @@ router.post(
 
         if (!content) {
             return res.status(400).json({ error: "Le contenu est vide" });
+        }
+
+        // 🔥 CORRECTION sender_id SAFE
+        const sender_id = req.user?.userId || req.body.sender_id;
+
+        if (!sender_id) {
+            return res.status(400).json({ error: "sender_id manquant" });
         }
 
         if (req.user.role === "FAMILLE") {
@@ -131,7 +142,7 @@ router.post(
         try {
             const messageData = {
                 patient_id,
-                sender_id: req.user.userId,
+                sender_id, // ✅ corrigé
                 content,
                 is_photo: is_photo || false,
                 reactions: {},
@@ -145,6 +156,27 @@ router.post(
 
             if (error) throw error;
 
+            // 🔔 =========================
+            // 🔥 PUSH NOTIFICATION (AJOUT)
+            // =========================
+            const { data: users } = await supabase
+                .from("profiles")
+                .select("push_token, id")
+                .neq("id", sender_id);
+
+            for (const user of users) {
+                if (user.push_token) {
+                    await sendPush(
+                        user.push_token,
+                        "💬 Nouveau message",
+                        content || "📷 Photo"
+                    );
+                }
+            }
+
+            // 🔔 =========================
+            // 🔁 TON CODE EXISTANT (INTOUCHÉ)
+            // =========================
             const { data: patient } = await supabase
                 .from("patients")
                 .select("famille_user_id, nom_complet")
