@@ -176,8 +176,6 @@ function getRealtimeChannel() {
   return realtimeChannel;
 }
 
-// EXPORTER LA FONCTION
-module.exports.getRealtimeChannel = getRealtimeChannel;
 
 
 // ============================================================
@@ -191,5 +189,6 @@ module.exports = {
   getDaysRemaining,
   isSubscriptionValid,
   getDurationFromPack,
+  getRealtimeChannel,
   calculateDiscountedPrice
 };
