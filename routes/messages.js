@@ -152,8 +152,11 @@ router.post(
             if (titre_media) messageData.titre_media = titre_media;
             if (reply_to_id) messageData.reply_to_id = reply_to_id;
 
-            const { error } = await supabase.from("messages").insert([messageData]);
-
+            const { data: insertedMessage, error } = await supabase
+                .from("messages")
+                .insert([messageData])
+                .select()
+                .single();
             if (error) throw error;
 
             // 🔔 =========================
