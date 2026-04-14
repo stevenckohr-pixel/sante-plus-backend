@@ -38,6 +38,7 @@ router.get(
 
         return res.json([{
           id: data.id,
+          patient_id: data.patient_id,
           content: data.content,
           is_photo: data.is_photo,
           photo_url: data.photo_url || null,
