@@ -23,22 +23,24 @@ async function sendPushNotification(userId, title, message, url = "/") {
 
     const payload = JSON.stringify({ title, message, url });
 
-    const notifications = subs.map((sub) => {
-      const subscription = {
-        endpoint: sub.endpoint,
-        keys: { auth: sub.auth, p256dh: sub.p256dh },
-      };
-
-      return webpush.sendNotification(subscription, payload).catch((err) => {
-        if (err.statusCode === 410 || err.statusCode === 404) {
-          console.log(`🧹 Nettoyage : Suppression d'un jeton push expiré pour l'user ${userId}`);
-          return supabase.from("push_subscriptions").delete().eq("id", sub.id);
-        }
-        console.error("⚠️ Erreur technique envoi Push:", err.statusCode);
-      });
-    });
-
-    await Promise.all(notifications);
+    // ⚠️ TEMPORAIREMENT DÉSACTIVÉ - On garde Firebase uniquement
+    // const notifications = subs.map((sub) => {
+    //   const subscription = {
+    //     endpoint: sub.endpoint,
+    //     keys: { auth: sub.auth, p256dh: sub.p256dh },
+    //   };
+    //
+    //   return webpush.sendNotification(subscription, payload).catch((err) => {
+    //     if (err.statusCode === 410 || err.statusCode === 404) {
+    //       console.log(`🧹 Nettoyage : Suppression d'un jeton push expiré pour l'user ${userId}`);
+    //       return supabase.from("push_subscriptions").delete().eq("id", sub.id);
+    //     }
+    //     console.error("⚠️ Erreur technique envoi Push:", err.statusCode);
+    //   });
+    // });
+    //
+    // await Promise.all(notifications);
+    
   } catch (err) {
     console.error("❌ Erreur globale sendPushNotification:", err.message);
   }
