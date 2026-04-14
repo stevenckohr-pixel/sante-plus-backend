@@ -18,21 +18,46 @@ router.get(
   "/",
   middleware(["COORDINATEUR", "AIDANT", "FAMILLE"]),
   async (req, res) => {
-    const { patient_id } = req.query;
-
-    if (!patient_id) {
-      return res.status(400).json({ error: "ID du patient manquant" });
-    }
+    const { patient_id, message_id } = req.query;
 
     try {
-      const { data, error } = await supabase
-          .from("messages")
-          .select(`
-              *,
-              sender:profiles!messages_sender_id_fkey (nom, role, photo_url)
-          `)
-          .eq("patient_id", patient_id)
-          .order("created_at", { ascending: true });
+      let query = supabase
+        .from("messages")
+        .select(`
+          *,
+          sender:profiles!messages_sender_id_fkey (nom, role, photo_url)
+        `);
+
+      // 🔥 CAS 1 : récupération d’un seul message (realtime)
+      if (message_id) {
+        const { data, error } = await query
+          .eq("id", message_id)
+          .single();
+
+        if (error) throw error;
+
+        return res.json([{
+          id: data.id,
+          content: data.content,
+          is_photo: data.is_photo,
+          photo_url: data.photo_url || null,
+          reply_to_id: data.reply_to_id || null,
+          reactions: data.reactions || {},
+          created_at: data.created_at,
+          sender_name: data.sender ? data.sender.nom : "Membre",
+          sender_role: data.sender ? data.sender.role : "MEMBRE",
+          sender_photo: data.sender ? data.sender.photo_url : null,
+        }]);
+      }
+
+      // 🔥 CAS 2 : fil classique
+      if (!patient_id) {
+        return res.status(400).json({ error: "ID du patient manquant" });
+      }
+
+      const { data, error } = await query
+        .eq("patient_id", patient_id)
+        .order("created_at", { ascending: true });
 
       if (error) throw error;
 
@@ -50,6 +75,7 @@ router.get(
       }));
 
       res.json(cleanedMessages);
+
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -142,7 +168,7 @@ router.post(
         try {
             const messageData = {
                 patient_id,
-                sender_id, // ✅ corrigé
+                sender_id,
                 content,
                 is_photo: is_photo || false,
                 reactions: {},
@@ -157,36 +183,54 @@ router.post(
                 .insert([messageData])
                 .select()
                 .single();
+
             if (error) throw error;
 
             // 🔔 =========================
-            // 🔥 PUSH NOTIFICATION (AJOUT)
+            // 🔥 PUSH NOTIFICATION (CORRIGÉ)
             // =========================
-const { data: users, error: usersError } = await supabase
-    .from("profiles")
-    .select("push_token, id")
-    .neq("id", sender_id);
 
-if (usersError) {
-    console.error("❌ Erreur récupération users:", usersError);
-}
+            // ✅ récupérer les bons utilisateurs liés au patient
+            const { data: patientUsers, error: patientUsersError } = await supabase
+                .from("patients")
+                .select("famille_user_id, coordonnateur_id")
+                .eq("id", patient_id)
+                .single();
 
-if (users && users.length > 0) {
-    for (const user of users) {
-        if (user.push_token) {
-            await sendPush(
-                user.push_token,
-                "💬 Nouveau message",
-                content || "📷 Photo"
-            );
-        }
-    }
-} else {
-    console.log("⚠️ Aucun utilisateur à notifier");
-}
+            if (patientUsersError) {
+                console.error("❌ Erreur patient:", patientUsersError);
+            }
+
+            const targetIds = [
+                patientUsers?.famille_user_id,
+                patientUsers?.coordonnateur_id
+            ].filter(id => id && id !== sender_id);
+
+            const { data: users } = await supabase
+                .from("profiles")
+                .select("push_token, id")
+                .in("id", targetIds);
+
+            if (users && users.length > 0) {
+                await Promise.all(
+                    users
+                        .filter(u => u.push_token)
+                        .map(u =>
+                            sendPush(
+                                u.push_token,
+                                "💬 Nouveau message",
+                                content || "📷 Photo"
+                            )
+                        )
+                );
+            } else {
+                console.log("⚠️ Aucun utilisateur à notifier");
+            }
+
             // 🔔 =========================
             // 🔁 TON CODE EXISTANT (INTOUCHÉ)
             // =========================
+
             const { data: patient } = await supabase
                 .from("patients")
                 .select("famille_user_id, nom_complet")
