@@ -64,6 +64,7 @@ router.get(
       const cleanedMessages = data.map((m) => ({
         id: m.id,
         content: m.content,
+        patient_id: m.patient_id,
         is_photo: m.is_photo,
         photo_url: m.photo_url || null,
         reply_to_id: m.reply_to_id || null,
