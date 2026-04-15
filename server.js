@@ -4,6 +4,8 @@ const cors = require("cors");
 const multer = require("multer");
 
 const supabase = require("./supabaseClient");
+const middleware = require("./middleware");
+
 
 const app = express(); 
 
