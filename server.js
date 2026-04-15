@@ -103,6 +103,48 @@ app.use("/api/notifications", notificationsRoutes);
 app.use("/api/educational", educationRoutes);
 
 
+// ============================================================
+// 🔥 ROUTE PUSH UNIFIÉE (Firebase Admin)
+// ============================================================
+app.post('/api/send-push', async (req, res) => {
+  try {
+    const { token, title, body, url } = req.body;
+    
+    if (!token || !title) {
+      return res.status(400).json({ error: "Token et titre requis" });
+    }
+
+    const { sendPush } = require("./firebaseAdmin");
+    
+    await sendPush(token, title, body);
+    
+    // Stocker la notification dans la base
+    const { data: user } = await supabase
+      .from("profiles")
+      .select("id")
+      .eq("push_token", token)
+      .single();
+    
+    if (user) {
+      await supabase.from("notifications").insert([{
+        user_id: user.id,
+        title: title,
+        message: body,
+        type: "push",
+        url: url || "/",
+        read: false,
+        created_at: new Date()
+      }]);
+    }
+    
+    res.json({ success: true });
+    
+  } catch (err) {
+    console.error("❌ Erreur send-push:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Démarrer les tâches planifiées
 startCronJobs();
 
