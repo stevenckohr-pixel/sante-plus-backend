@@ -21,21 +21,25 @@ router.get(
     const { patient_id, message_id } = req.query;
 
     try {
-      let query = supabase
-        .from("messages")
-        .select(`
-          *,
-          sender:profiles!messages_sender_id_fkey (nom, role, photo_url)
-        `);
-
-      // 🔥 CAS 1 : récupération d’un seul message (realtime)
+      // 🔥 CAS 1 : Récupération d'un seul message (pour Realtime)
       if (message_id) {
-        const { data, error } = await query
+        const { data, error } = await supabase
+          .from("messages")
+          .select(`
+            *,
+            sender:profiles!messages_sender_id_fkey (
+              id,
+              nom, 
+              role, 
+              photo_url
+            )
+          `)
           .eq("id", message_id)
           .single();
 
         if (error) throw error;
 
+        // Formatage du message unique avec sender_id
         return res.json([{
           id: data.id,
           patient_id: data.patient_id,
@@ -45,23 +49,39 @@ router.get(
           reply_to_id: data.reply_to_id || null,
           reactions: data.reactions || {},
           created_at: data.created_at,
-          sender_name: data.sender ? data.sender.nom : "Membre",
-          sender_role: data.sender ? data.sender.role : "MEMBRE",
-          sender_photo: data.sender ? data.sender.photo_url : null,
+          sender_id: data.sender?.id || null,
+          sender_name: data.sender?.nom || "Membre",
+          sender_role: data.sender?.role || "MEMBRE",
+          sender_photo: data.sender?.photo_url || null,
+          read: data.read || false,
+          read_at: data.read_at || null,
+          type_media: data.type_media || "STORY",
+          titre_media: data.titre_media || null
         }]);
       }
 
-      // 🔥 CAS 2 : fil classique
+      // 🔥 CAS 2 : Récupération de tous les messages d'un patient
       if (!patient_id) {
         return res.status(400).json({ error: "ID du patient manquant" });
       }
 
-      const { data, error } = await query
+      const { data, error } = await supabase
+        .from("messages")
+        .select(`
+          *,
+          sender:profiles!messages_sender_id_fkey (
+            id,
+            nom, 
+            role, 
+            photo_url
+          )
+        `)
         .eq("patient_id", patient_id)
         .order("created_at", { ascending: true });
 
       if (error) throw error;
 
+      // Formatage des messages avec sender_id
       const cleanedMessages = data.map((m) => ({
         id: m.id,
         content: m.content,
@@ -71,19 +91,24 @@ router.get(
         reply_to_id: m.reply_to_id || null,
         reactions: m.reactions || {},
         created_at: m.created_at,
-        sender_name: m.sender ? m.sender.nom : "Système",
-        sender_role: m.sender ? m.sender.role : "COORDINATEUR",
-        sender_photo: m.sender ? m.sender.photo_url : null,
+        sender_id: m.sender?.id || null,
+        sender_name: m.sender?.nom || "Système",
+        sender_role: m.sender?.role || "COORDINATEUR",
+        sender_photo: m.sender?.photo_url || null,
+        read: m.read || false,
+        read_at: m.read_at || null,
+        type_media: m.type_media || "STORY",
+        titre_media: m.titre_media || null
       }));
 
       res.json(cleanedMessages);
 
     } catch (err) {
+      console.error("❌ Erreur GET /messages:", err);
       res.status(500).json({ error: err.message });
     }
-  },
+  }
 );
-
 // ============================================================
 // ❤️ 2. AJOUTER UNE RÉACTION
 // ============================================================
