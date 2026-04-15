@@ -36,6 +36,43 @@ app.use(cors({
     credentials: true
 }));
 
+
+// Route pour les notifications (utilisée par visites.js)
+app.post('/api/notifications/send', middleware(), async (req, res) => {
+  try {
+    const { userId, title, message, type, url } = req.body;
+    
+    // Créer la notification dans la base
+    const { error } = await supabase.from("notifications").insert([{
+      user_id: userId,
+      title: title,
+      message: message,
+      type: type || "visit",
+      url: url || "/",
+      read: false,
+      created_at: new Date()
+    }]);
+    
+    if (error) throw error;
+    
+    // Envoyer la notification push via FCM
+    const { sendPush } = require("./firebaseAdmin");
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("push_token")
+      .eq("id", userId)
+      .single();
+    
+    if (profile?.push_token) {
+      await sendPush(profile.push_token, title, message);
+    }
+    
+    res.json({ success: true });
+  } catch (err) {
+    console.error("❌ Erreur send notification:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
 // ============================================================
 // 🔥 ROUTE PUSH (AJOUT SANS RIEN CASSER)
 // ============================================================
