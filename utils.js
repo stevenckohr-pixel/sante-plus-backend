@@ -9,40 +9,37 @@ webpush.setVapidDetails(
   process.env.VAPID_PRIVATE_KEY,
 );
 
+
 /**
- * 🔔 ENVOYER UNE NOTIFICATION PUSH NATIVE
+ * 🔔 ENVOYER UNE NOTIFICATION PUSH (VIA FIREBASE UNIQUEMENT)
  */
 async function sendPushNotification(userId, title, message, url = "/") {
   try {
-    const { data: subs, error } = await supabase
-      .from("push_subscriptions")
-      .select("*")
-      .eq("user_id", userId);
+    // Récupérer le token FCM depuis la base
+    const { data: profile, error } = await supabase
+      .from("profiles")
+      .select("push_token")
+      .eq("id", userId)
+      .single();
 
-    if (error || !subs || subs.length === 0) return;
+    if (error || !profile?.push_token) {
+      console.log(`📭 Pas de token FCM pour l'utilisateur ${userId}`);
+      return;
+    }
 
-    const payload = JSON.stringify({ title, message, url });
+    // Envoyer via Firebase (le backend s'en chargera via firebaseAdmin.js)
+    // On appelle notre API backend qui utilise firebase-admin
+    await axios.post(`${process.env.API_URL}/send-push`, {
+      token: profile.push_token,
+      title: title,
+      body: message,
+      url: url
+    });
 
-    // ⚠️ TEMPORAIREMENT DÉSACTIVÉ - On garde Firebase uniquement
-    // const notifications = subs.map((sub) => {
-    //   const subscription = {
-    //     endpoint: sub.endpoint,
-    //     keys: { auth: sub.auth, p256dh: sub.p256dh },
-    //   };
-    //
-    //   return webpush.sendNotification(subscription, payload).catch((err) => {
-    //     if (err.statusCode === 410 || err.statusCode === 404) {
-    //       console.log(`🧹 Nettoyage : Suppression d'un jeton push expiré pour l'user ${userId}`);
-    //       return supabase.from("push_subscriptions").delete().eq("id", sub.id);
-    //     }
-    //     console.error("⚠️ Erreur technique envoi Push:", err.statusCode);
-    //   });
-    // });
-    //
-    // await Promise.all(notifications);
-    
+    console.log(`✅ Notification FCM envoyée à ${userId}`);
+
   } catch (err) {
-    console.error("❌ Erreur globale sendPushNotification:", err.message);
+    console.error("❌ Erreur sendPushNotification:", err.message);
   }
 }
 
