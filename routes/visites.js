@@ -907,4 +907,31 @@ router.post("/test-realtime", middleware(), async (req, res) => {  // ← Enlèv
     }
 });
 
+
+/**
+ * 📊 GET - Progression des visites pour une maman
+ */
+router.get("/progress/:patientId", middleware(["FAMILLE", "COORDINATEUR"]), async (req, res) => {
+    const { patientId } = req.params;
+    
+    try {
+        // Récupérer toutes les visites du patient
+        const { data: visites, error } = await supabase
+            .from("visites")
+            .select("statut")
+            .eq("patient_id", patientId);
+        
+        if (error) throw error;
+        
+        const total = visites?.length || 0;
+        const completed = visites?.filter(v => v.statut === "Validé").length || 0;
+        const progress = total > 0 ? Math.round((completed / total) * 100) : 0;
+        
+        res.json({ total, completed, progress });
+        
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 module.exports = router;
