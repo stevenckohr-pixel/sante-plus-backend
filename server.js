@@ -81,6 +81,8 @@ const assignmentRoutes = require("./routes/assignments");
 const notificationsRoutes = require("./routes/notifications");
 const commandesRoutes = require("./routes/commandes");
 const planningRoutes = require("./routes/planning");
+const educationRoutes = require("./routes/education");
+
 
 // ============================================================
 // BRANCHEMENT DES ROUTES (INTOUCHÉ)
@@ -98,6 +100,8 @@ app.use("/api/messages", messagesRoutes);
 app.use("/api/commandes", commandesRoutes);
 app.use("/api/planning", planningRoutes);
 app.use("/api/notifications", notificationsRoutes);
+app.use("/api/educational", educationRoutes);
+
 
 // Démarrer les tâches planifiées
 startCronJobs();
