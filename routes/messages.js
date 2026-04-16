@@ -1,4 +1,4 @@
-// backend/routes/messages.js - VERSION COMPLÈTE AVEC LA ROUTE PHOTO
+//VERSION COMPLÈTE AVEC LA ROUTE PHOTO
 
 const express = require("express");
 const router = express.Router();
