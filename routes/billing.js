@@ -278,7 +278,7 @@ router.post("/initiate-payment", middleware(["FAMILLE"]), async (req, res) => {
     
     if (userErr) throw userErr;
     
-    const fedapayMode = process.env.FEDAPAY_MODE || 'sandbox';
+    const fedapayMode = process.env.FEDAPAY_MODE || 'production';
     const apiUrl = fedapayMode === 'production' 
       ? "https://api.fedapay.com/v1/transactions"
       : "https://sandbox-api.fedapay.com/v1/transactions";
