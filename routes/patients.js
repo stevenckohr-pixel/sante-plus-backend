@@ -8,6 +8,9 @@ const middleware = require("../middleware");
 // ============================================================
 // 📋 1. LISTER LES PATIENTS
 // ============================================================
+// backend/routes/patients.js
+
+// 📋 1. LISTER LES PATIENTS (CORRIGÉ)
 router.get("/", middleware(["COORDINATEUR", "FAMILLE", "AIDANT"]), async (req, res) => {
   try {
     let query = supabase.from("patients").select(`
@@ -15,18 +18,27 @@ router.get("/", middleware(["COORDINATEUR", "FAMILLE", "AIDANT"]), async (req, r
         famille:famille_user_id (nom, email, telephone)
     `);
 
+    // 🔥 CORRECTION POUR LA FAMILLE
     if (req.user.role === "FAMILLE") {
+      // Une famille ne voit que SES patients (ceux liés à son ID)
       query = query.eq("famille_user_id", req.user.userId);
     } 
     else if (req.user.role === "AIDANT") {
+      // Un aidant voit les patients qui lui sont assignés
       const { data: planning } = await supabase
         .from("planning")
         .select("patient_id")
-        .eq("aidant_id", req.user.userId);
+        .eq("aidant_id", req.user.userId)
+        .eq("est_actif", true);
       
       const patientIds = planning ? planning.map(p => p.patient_id) : [];
+      
+      if (patientIds.length === 0) {
+        return res.json([]);
+      }
       query = query.in("id", patientIds);
     }
+    // COORDINATEUR voit tout (pas de filtre)
 
     const { data, error } = await query.order("created_at", { ascending: false });
     if (error) throw error;
@@ -36,7 +48,6 @@ router.get("/", middleware(["COORDINATEUR", "FAMILLE", "AIDANT"]), async (req, r
     res.status(500).json({ error: err.message });
   }
 });
-
 
 // ============================================================
 // ➕ 2. AJOUTER UN PATIENT
