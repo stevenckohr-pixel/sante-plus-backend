@@ -19,6 +19,8 @@ router.get(
   middleware(["COORDINATEUR", "AIDANT", "FAMILLE"]),
   async (req, res) => {
     const { patient_id, message_id } = req.query;
+    const currentUserId = req.user.userId;
+    const currentRole = req.user.role;
 
     try {
       // 🔥 CAS 1 : Récupération d'un seul message (pour Realtime)
@@ -39,6 +41,11 @@ router.get(
 
         if (error) throw error;
 
+        // Vérifier les droits d'accès
+        if (!hasAccessToMessage(data, currentUserId, currentRole)) {
+          return res.status(403).json({ error: "Accès non autorisé à ce message" });
+        }
+
         // Formatage du message unique avec sender_id
         return res.json([{
           id: data.id,
@@ -56,7 +63,8 @@ router.get(
           read: data.read || false,
           read_at: data.read_at || null,
           type_media: data.type_media || "STORY",
-          titre_media: data.titre_media || null
+          titre_media: data.titre_media || null,
+          visibility: data.visibility || "all"
         }]);
       }
 
@@ -81,8 +89,13 @@ router.get(
 
       if (error) throw error;
 
+      // Filtrer les messages selon les droits d'accès
+      const filteredMessages = data.filter(msg => 
+        hasAccessToMessage(msg, currentUserId, currentRole)
+      );
+
       // Formatage des messages avec sender_id
-      const cleanedMessages = data.map((m) => ({
+      const cleanedMessages = filteredMessages.map((m) => ({
         id: m.id,
         content: m.content,
         patient_id: m.patient_id,
@@ -98,7 +111,8 @@ router.get(
         read: m.read || false,
         read_at: m.read_at || null,
         type_media: m.type_media || "STORY",
-        titre_media: m.titre_media || null
+        titre_media: m.titre_media || null,
+        visibility: m.visibility || "all"
       }));
 
       res.json(cleanedMessages);
@@ -109,6 +123,37 @@ router.get(
     }
   }
 );
+
+// ============================================================
+// FONCTION DE VÉRIFICATION D'ACCÈS
+// ============================================================
+
+function hasAccessToMessage(message, userId, role) {
+  const visibility = message.visibility || 'all';
+  
+  // L'expéditeur peut toujours voir son message
+  if (message.sender_id === userId) return true;
+  
+  // Messages publics
+  if (visibility === 'all') return true;
+  
+  // Messages pour la famille uniquement
+  if (visibility === 'family') {
+    return role === 'FAMILLE';
+  }
+  
+  // Messages pour les aidants uniquement
+  if (visibility === 'aidant') {
+    return role === 'AIDANT';
+  }
+  
+  // Messages pour le coordinateur uniquement
+  if (visibility === 'coordinateur') {
+    return role === 'COORDINATEUR';
+  }
+  
+  return false;
+}
 // ============================================================
 // ❤️ 2. AJOUTER UNE RÉACTION
 // ============================================================
@@ -199,6 +244,7 @@ router.post(
                 content,
                 is_photo: is_photo || false,
                 reactions: {},
+              visibility: visibility || 'all', 
             };
 
             if (type_media) messageData.type_media = type_media;
@@ -388,7 +434,8 @@ router.post(
                 reply_to_id: reply_to_id || null,
                 reactions: {},
                 read: false,
-                created_at: new Date().toISOString()
+                created_at: new Date().toISOString(),
+                visibility: visibility || 'all',
             };
 
             const { data: newMessage, error: insertError } = await supabase
@@ -583,6 +630,7 @@ router.post(
                 titre_media: originalName,
                 reply_to_id: reply_to_id || null,
                 reactions: {},
+                visibility: visibility || 'all', 
             };
 
             const { error: insertError } = await supabase.from("messages").insert([messageData]);
