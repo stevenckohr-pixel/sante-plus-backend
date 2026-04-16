@@ -198,7 +198,7 @@ router.post(
     "/send",
     middleware(["COORDINATEUR", "AIDANT", "FAMILLE"]),
     async (req, res) => {
-        const { patient_id, content, is_photo, type_media, titre_media, reply_to_id } = req.body;
+        const { patient_id, content, is_photo, type_media, titre_media, reply_to_id, visibility } = req.body;
 
         if (!content) {
             return res.status(400).json({ error: "Le contenu est vide" });
@@ -244,7 +244,7 @@ router.post(
                 content,
                 is_photo: is_photo || false,
                 reactions: {},
-              visibility: visibility || 'all', 
+                visibility: visibility || 'all', 
             };
 
             if (type_media) messageData.type_media = type_media;
@@ -355,7 +355,7 @@ router.post(
     async (req, res) => {
         console.log("🔵 [send-photo] Route appelée");
         
-        const { patient_id, reply_to_id, caption } = req.body;
+        const { patient_id, reply_to_id, caption, visibility } = req.body;
         const photoFile = req.file;
 
         // Vérifications de base
@@ -544,7 +544,7 @@ router.post(
     async (req, res) => {
         console.log("🔵 [send-document] Route appelée");
         
-        const { patient_id, reply_to_id, type_media } = req.body;
+        const { patient_id, reply_to_id, type_media, visibility } = req.body;
         const documentFile = req.file;
 
         if (!documentFile) {
