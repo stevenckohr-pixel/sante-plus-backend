@@ -6,11 +6,16 @@ const multer = require("multer");
 const supabase = require("./supabaseClient");
 const middleware = require("./middleware");
 
+const app = express();
 
-const app = express(); 
-
-// ✅ Définir upload pour les routes qui en ont besoin
+// ============================================================
+// CONFIGURATION MULTER
+// ============================================================
 const upload = multer({ storage: multer.memoryStorage() });
+
+// ============================================================
+// MIDDLEWARES GLOBAUX
+// ============================================================
 
 // Servir les fichiers statiques
 app.use('/assets', express.static('assets'));
@@ -26,7 +31,9 @@ app.use((req, res, next) => {
     next();
 });
 
-// CORS
+// ============================================================
+// CORS (CORRIGÉ)
+// ============================================================
 app.use(cors({
     origin: [
         'https://stevenckohr-pixel.github.io',
@@ -34,50 +41,57 @@ app.use(cors({
         'http://127.0.0.1:5500'
     ],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Cache-Control'], // ← AJOUTÉ Cache-Control
     credentials: true
 }));
 
+// ============================================================
+// ROUTES PUBLIQUES (SANS AUTHENTIFICATION)
+// ============================================================
+
+// Health check
+app.get("/", (req, res) => res.send("🚀 Santé Plus Services API opérationnelle"));
+
+// ============================================================
+// ROUTES DE NOTIFICATIONS
+// ============================================================
 
 // Route pour les notifications (utilisée par visites.js)
 app.post('/api/notifications/send', middleware(), async (req, res) => {
-  try {
-    const { userId, title, message, type, url } = req.body;
-    
-    // Créer la notification dans la base
-    const { error } = await supabase.from("notifications").insert([{
-      user_id: userId,
-      title: title,
-      message: message,
-      type: type || "visit",
-      url: url || "/",
-      read: false,
-      created_at: new Date()
-    }]);
-    
-    if (error) throw error;
-    
-    // Envoyer la notification push via FCM
-    const { sendPush } = require("./firebaseAdmin");
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("push_token")
-      .eq("id", userId)
-      .single();
-    
-    if (profile?.push_token) {
-      await sendPush(profile.push_token, title, message);
+    try {
+        const { userId, title, message, type, url } = req.body;
+        
+        const { error } = await supabase.from("notifications").insert([{
+            user_id: userId,
+            title: title,
+            message: message,
+            type: type || "visit",
+            url: url || "/",
+            read: false,
+            created_at: new Date()
+        }]);
+        
+        if (error) throw error;
+        
+        const { sendPush } = require("./firebaseAdmin");
+        const { data: profile } = await supabase
+            .from("profiles")
+            .select("push_token")
+            .eq("id", userId)
+            .single();
+        
+        if (profile?.push_token) {
+            await sendPush(profile.push_token, title, message);
+        }
+        
+        res.json({ success: true });
+    } catch (err) {
+        console.error("❌ Erreur send notification:", err);
+        res.status(500).json({ error: err.message });
     }
-    
-    res.json({ success: true });
-  } catch (err) {
-    console.error("❌ Erreur send notification:", err);
-    res.status(500).json({ error: err.message });
-  }
 });
-// ============================================================
-// 🔥 ROUTE PUSH (AJOUT SANS RIEN CASSER)
-// ============================================================
+
+// Route pour sauvegarder le token push
 app.post('/api/save-push-token', async (req, res) => {
     try {
         const { token, user_id } = req.body;
@@ -101,11 +115,47 @@ app.post('/api/save-push-token', async (req, res) => {
     }
 });
 
-// Health check
-app.get("/", (req, res) => res.send("🚀 Santé Plus Services API opérationnelle"));
+// Route push unifiée (Firebase Admin)
+app.post('/api/send-push', async (req, res) => {
+    try {
+        const { token, title, body, url } = req.body;
+        
+        if (!token || !title) {
+            return res.status(400).json({ error: "Token et titre requis" });
+        }
+
+        const { sendPush } = require("./firebaseAdmin");
+        
+        await sendPush(token, title, body);
+        
+        const { data: user } = await supabase
+            .from("profiles")
+            .select("id")
+            .eq("push_token", token)
+            .single();
+        
+        if (user) {
+            await supabase.from("notifications").insert([{
+                user_id: user.id,
+                title: title,
+                message: body,
+                type: "push",
+                url: url || "/",
+                read: false,
+                created_at: new Date()
+            }]);
+        }
+        
+        res.json({ success: true });
+        
+    } catch (err) {
+        console.error("❌ Erreur send-push:", err);
+        res.status(500).json({ error: err.message });
+    }
+});
 
 // ============================================================
-// IMPORTS DES ROUTES (INTOUCHÉ)
+// IMPORTS DES ROUTES
 // ============================================================
 const authRoutes = require("./routes/auth");
 const billingRoutes = require("./routes/billing");
@@ -122,11 +172,9 @@ const commandesRoutes = require("./routes/commandes");
 const planningRoutes = require("./routes/planning");
 const educationRoutes = require("./routes/education");
 
-
 // ============================================================
-// BRANCHEMENT DES ROUTES (INTOUCHÉ)
+// BRANCHEMENT DES ROUTES
 // ============================================================
-
 app.use("/api/auth", authRoutes);
 app.use("/api/billing", billingRoutes);
 app.use("/api/dashboard", dashboardRoutes);
@@ -141,53 +189,14 @@ app.use("/api/planning", planningRoutes);
 app.use("/api/notifications", notificationsRoutes);
 app.use("/api/educational", educationRoutes);
 
-
 // ============================================================
-// 🔥 ROUTE PUSH UNIFIÉE (Firebase Admin)
+// DÉMARRAGE DES TÂCHES PLANIFIÉES
 // ============================================================
-app.post('/api/send-push', async (req, res) => {
-  try {
-    const { token, title, body, url } = req.body;
-    
-    if (!token || !title) {
-      return res.status(400).json({ error: "Token et titre requis" });
-    }
-
-    const { sendPush } = require("./firebaseAdmin");
-    
-    await sendPush(token, title, body);
-    
-    // Stocker la notification dans la base
-    const { data: user } = await supabase
-      .from("profiles")
-      .select("id")
-      .eq("push_token", token)
-      .single();
-    
-    if (user) {
-      await supabase.from("notifications").insert([{
-        user_id: user.id,
-        title: title,
-        message: body,
-        type: "push",
-        url: url || "/",
-        read: false,
-        created_at: new Date()
-      }]);
-    }
-    
-    res.json({ success: true });
-    
-  } catch (err) {
-    console.error("❌ Erreur send-push:", err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Démarrer les tâches planifiées
 startCronJobs();
 
-// Démarrage
+// ============================================================
+// DÉMARRAGE DU SERVEUR
+// ============================================================
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
     console.log(`✅ Serveur démarré sur le port ${PORT}`);
