@@ -299,6 +299,9 @@ router.post(
 // ============================================================
 // 📸 4. ENVOYER UNE PHOTO (VERSION FINALE - SANS type_media)
 // ============================================================
+/**
+ * 📸 ENVOYER UNE PHOTO (VERSION CORRIGÉE)
+ */
 router.post(
     "/send-photo",
     middleware(["COORDINATEUR", "AIDANT", "FAMILLE"]),
@@ -309,16 +312,20 @@ router.post(
         const { patient_id, reply_to_id, caption } = req.body;
         const photoFile = req.file;
 
+        // Vérifications de base
         if (!photoFile) {
             return res.status(400).json({ error: "Photo requise" });
         }
-
         if (!patient_id) {
             return res.status(400).json({ error: "ID patient requis" });
         }
 
         try {
-            // Vérifications de sécurité (inchangées)
+            // ============================================================
+            // 1. VÉRIFICATIONS DE SÉCURITÉ
+            // ============================================================
+            
+            // Vérification pour la FAMILLE
             if (req.user.role === "FAMILLE") {
                 const { data: patient, error } = await supabase
                     .from("patients")
@@ -332,6 +339,7 @@ router.post(
                 }
             }
 
+            // Vérification pour l'AIDANT
             if (req.user.role === "AIDANT") {
                 const { data: planning, error } = await supabase
                     .from("planning")
@@ -345,8 +353,11 @@ router.post(
                 }
             }
 
-            // Upload vers Supabase Storage
-            const fileName = `messages/${patient_id}/${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
+            // ============================================================
+            // 2. UPLOAD VERS SUPABASE STORAGE
+            // ============================================================
+            const fileExtension = photoFile.originalname?.split('.').pop() || 'jpg';
+            const fileName = `messages/${patient_id}/${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExtension}`;
             
             const { error: uploadError } = await supabase.storage
                 .from("preuves")
@@ -355,28 +366,47 @@ router.post(
                     upsert: false,
                 });
 
-            if (uploadError) throw uploadError;
+            if (uploadError) {
+                console.error("❌ Erreur upload:", uploadError);
+                throw uploadError;
+            }
 
+            // Récupérer l'URL publique
             const { data: urlData } = supabase.storage.from("preuves").getPublicUrl(fileName);
             const photoUrl = urlData.publicUrl;
 
-            // ✅ Insertion SANS type_media (contrainte SQL sera ignorée)
+            // ============================================================
+            // 3. CRÉATION DU MESSAGE DANS LA BASE
+            // ============================================================
             const messageData = {
-                patient_id,
+                patient_id: patient_id,
                 sender_id: req.user.userId,
-                content: caption || "",
-                photo_url: photoUrl,
-                is_photo: true,
+                content: photoUrl,                    // L'URL de la photo
+                photo_url: photoUrl,                  // Pour faciliter l'affichage
+                is_photo: true,                       // ← IMPORTANT : flag pour identifier les photos
+                type_media: 'STORY',                  // ← Pour le filtrage dans l'onglet STORY
                 reply_to_id: reply_to_id || null,
                 reactions: {},
-                // ⚠️ PAS de type_media ici
+                read: false,
+                created_at: new Date().toISOString()
             };
 
-            const { error: insertError } = await supabase.from("messages").insert([messageData]);
+            const { data: newMessage, error: insertError } = await supabase
+                .from("messages")
+                .insert([messageData])
+                .select()
+                .single();
 
-            if (insertError) throw insertError;
+            if (insertError) {
+                console.error("❌ Erreur insertion message:", insertError);
+                throw insertError;
+            }
 
-            // Notification
+            console.log("✅ Photo envoyée, message créé:", newMessage.id);
+
+            // ============================================================
+            // 4. NOTIFICATION À LA FAMILLE (si l'envoyeur n'est pas la famille)
+            // ============================================================
             const { data: patient } = await supabase
                 .from("patients")
                 .select("famille_user_id, nom_complet")
@@ -384,15 +414,34 @@ router.post(
                 .single();
 
             if (patient && patient.famille_user_id && req.user.role !== "FAMILLE") {
+                // Notification push
                 sendPushNotification(
                     patient.famille_user_id,
                     "📸 Nouvelle photo",
                     `Une nouvelle photo a été ajoutée au journal de ${patient.nom_complet}`,
                     "/#feed"
                 );
+                
+                // Notification dans la base
+                if (typeof createNotification === 'function') {
+                    await createNotification(
+                        patient.famille_user_id,
+                        "📸 Nouvelle photo",
+                        `Une photo a été ajoutée au journal de ${patient.nom_complet}`,
+                        "message",
+                        "/#feed"
+                    );
+                }
             }
 
-            res.json({ status: "success", photo_url: photoUrl });
+            // ============================================================
+            // 5. RÉPONSE AU CLIENT
+            // ============================================================
+            res.json({ 
+                status: "success", 
+                photo_url: photoUrl,
+                message_id: newMessage.id
+            });
 
         } catch (err) {
             console.error("❌ Erreur send-photo:", err.message);
@@ -400,7 +449,6 @@ router.post(
         }
     }
 );
-
 
 router.post('/mark-read', async (req, res) => {
     try {
