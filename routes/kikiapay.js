@@ -1,9 +1,8 @@
-const express = require("express");
+ const express = require("express");
 const router = express.Router();
 const supabase = require("../supabaseClient");
 const axios = require("axios");
 
-// Configuration Kikiapay
 const KIKIAPAY_CONFIG = {
     sandbox: true,
     api_key: "b2854970ebcc11efb68863f84d1e6b32",
@@ -11,7 +10,7 @@ const KIKIAPAY_CONFIG = {
 };
 
 // ============================================================
-// 1. INITIER UN PAIEMENT
+// 1. INITIER UN PAIEMENT (sans table pending)
 // ============================================================
 router.post("/init-payment", async (req, res) => {
     const { abonnement_id, montant, patient_nom, user_email } = req.body;
@@ -23,19 +22,6 @@ router.post("/init-payment", async (req, res) => {
     try {
         // Générer un ID de transaction unique
         const transaction_id = `SPS_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-
-        // Créer une transaction temporaire dans la BDD
-        const { error: insertError } = await supabase
-            .from("pending_transactions")
-            .insert([{
-                transaction_id: transaction_id,
-                abonnement_id: abonnement_id,
-                montant: montant,
-                statut: "PENDING",
-                created_at: new Date()
-            }]);
-
-        if (insertError) throw insertError;
 
         // Appel API Kikiapay pour créer la transaction
         const apiUrl = KIKIAPAY_CONFIG.sandbox 
@@ -50,7 +36,7 @@ router.post("/init-payment", async (req, res) => {
             email: user_email || "client@sps.bj",
             phone: "",
             description: `Paiement abonnement Santé Plus`,
-            redirect_url: `${process.env.FRONTEND_URL || 'https://stevenckohr-pixel.github.io/sante-plus-frontend'}/#billing?status=success`,
+            redirect_url: `${process.env.FRONTEND_URL || 'https://stevenckohr-pixel.github.io/sante-plus-frontend'}/#billing?status=success&abonnement_id=${abonnement_id}&montant=${montant}`,
             cancel_url: `${process.env.FRONTEND_URL || 'https://stevenckohr-pixel.github.io/sante-plus-frontend'}/#billing?status=cancel`,
             metadata: {
                 transaction_id: transaction_id,
@@ -65,7 +51,6 @@ router.post("/init-payment", async (req, res) => {
 
         console.log("✅ Transaction Kikiapay créée:", response.data);
 
-        // Retourner l'URL de paiement
         res.json({
             success: true,
             payment_url: response.data.payment_url || response.data.redirect_url,
@@ -81,42 +66,28 @@ router.post("/init-payment", async (req, res) => {
 });
 
 // ============================================================
-// 2. CONFIRMATION DE PAIEMENT (appelée après redirection)
+// 2. CONFIRMATION DE PAIEMENT (via paramètres URL)
 // ============================================================
 router.get("/confirm", async (req, res) => {
-    const { transaction_id, status, payment_id } = req.query;
+    const { status, abonnement_id, montant, transaction_id } = req.query;
 
-    console.log("🔔 Confirmation paiement reçue:", { transaction_id, status, payment_id });
+    console.log("🔔 Confirmation paiement reçue:", { status, abonnement_id, montant, transaction_id });
 
-    if (!transaction_id) {
-        return res.redirect(`${process.env.FRONTEND_URL || 'https://stevenckohr-pixel.github.io/sante-plus-frontend'}/#billing?status=error`);
-    }
+    const frontendUrl = process.env.FRONTEND_URL || 'https://stevenckohr-pixel.github.io/sante-plus-frontend';
 
-    try {
-        if (status === "success" || status === "SUCCESS") {
-            // Récupérer la transaction en attente
-            const { data: pending, error: pendingErr } = await supabase
-                .from("pending_transactions")
-                .select("*")
-                .eq("transaction_id", transaction_id)
-                .single();
-
-            if (pendingErr || !pending) {
-                console.error("❌ Transaction non trouvée:", transaction_id);
-                return res.redirect(`${process.env.FRONTEND_URL}/#billing?status=error`);
-            }
-
+    if (status === "success" && abonnement_id) {
+        try {
             // Mettre à jour l'abonnement
             const { error: aboErr } = await supabase
                 .from("abonnements")
                 .update({
                     statut: "Payé",
                     date_paiement: new Date().toISOString(),
-                    montant_paye: pending.montant,
-                    reference_paiement: payment_id || transaction_id,
+                    montant_paye: montant,
+                    reference_paiement: transaction_id || `KK_${Date.now()}`,
                     mode_paiement: "KIKIAPAY"
                 })
-                .eq("id", pending.abonnement_id);
+                .eq("id", abonnement_id);
 
             if (aboErr) throw aboErr;
 
@@ -124,7 +95,7 @@ router.get("/confirm", async (req, res) => {
             const { data: abo } = await supabase
                 .from("abonnements")
                 .select("patient_id")
-                .eq("id", pending.abonnement_id)
+                .eq("id", abonnement_id)
                 .single();
 
             if (abo) {
@@ -137,39 +108,17 @@ router.get("/confirm", async (req, res) => {
                     .eq("id", abo.patient_id);
             }
 
-            // Mettre à jour la transaction en attente
-            await supabase
-                .from("pending_transactions")
-                .update({ statut: "COMPLETED" })
-                .eq("transaction_id", transaction_id);
+            console.log(`✅ Paiement validé pour abonnement ${abonnement_id}`);
 
-            console.log(`✅ Paiement validé pour transaction ${transaction_id}`);
+            res.redirect(`${frontendUrl}/#billing?status=success`);
 
-            // Rediriger vers la page de succès
-            res.redirect(`${process.env.FRONTEND_URL}/#billing?status=success`);
-
-        } else {
-            // Paiement échoué ou annulé
-            await supabase
-                .from("pending_transactions")
-                .update({ statut: "FAILED" })
-                .eq("transaction_id", transaction_id);
-
-            res.redirect(`${process.env.FRONTEND_URL}/#billing?status=cancel`);
+        } catch (err) {
+            console.error("❌ Erreur confirmation:", err.message);
+            res.redirect(`${frontendUrl}/#billing?status=error`);
         }
-
-    } catch (err) {
-        console.error("❌ Erreur confirmation:", err.message);
-        res.redirect(`${process.env.FRONTEND_URL}/#billing?status=error`);
+    } else {
+        res.redirect(`${frontendUrl}/#billing?status=cancel`);
     }
-});
-
-// ============================================================
-// 3. ANNULATION PAIEMENT
-// ============================================================
-router.get("/cancel", async (req, res) => {
-    console.log("❌ Paiement annulé:", req.query);
-    res.redirect(`${process.env.FRONTEND_URL || 'https://stevenckohr-pixel.github.io/sante-plus-frontend'}/#billing?status=cancel`);
 });
 
 module.exports = router;
