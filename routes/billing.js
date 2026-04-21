@@ -8,6 +8,38 @@ const { sendPushNotification, getDurationFromPack, calculateSubscriptionEndDate 
 const { createNotification } = require("./notifications");
 
 // ============================================================
+// 🔐 Vérification signature webhook
+// ============================================================
+function verifyWebhookSignature(signature, payload) {
+  if (!signature || !process.env.FEDAPAY_WEBHOOK_SECRET) return false;
+  
+  try {
+    const parts = signature.split(',');
+    let timestamp = null, signatureHash = null;
+    
+    for (const part of parts) {
+      if (part.startsWith('t=')) timestamp = part.substring(2);
+      else if (part.startsWith('s=')) signatureHash = part.substring(2);
+    }
+    
+    if (!timestamp || !signatureHash) return false;
+    
+    const signedPayload = timestamp + "." + payload;
+    const expectedSignature = crypto
+      .createHmac('sha256', process.env.FEDAPAY_WEBHOOK_SECRET)
+      .update(signedPayload)
+      .digest('hex');
+    
+    return crypto.timingSafeEqual(
+      Buffer.from(signatureHash, 'hex'),
+      Buffer.from(expectedSignature, 'hex')
+    );
+  } catch (err) {
+    return false;
+  }
+}
+
+// ============================================================
 // 🔔 WEBHOOK FEDAPAY (SANS AUTHENTIFICATION - PLACÉ EN PREMIER)
 // ============================================================
 router.post("/webhook", express.raw({ type: 'application/json' }), async (req, res) => {
@@ -120,38 +152,6 @@ router.post("/webhook", express.raw({ type: 'application/json' }), async (req, r
 });
 
 // ============================================================
-// 🔐 Vérification signature webhook
-// ============================================================
-function verifyWebhookSignature(signature, payload) {
-  if (!signature || !process.env.FEDAPAY_WEBHOOK_SECRET) return false;
-  
-  try {
-    const parts = signature.split(',');
-    let timestamp = null, signatureHash = null;
-    
-    for (const part of parts) {
-      if (part.startsWith('t=')) timestamp = part.substring(2);
-      else if (part.startsWith('s=')) signatureHash = part.substring(2);
-    }
-    
-    if (!timestamp || !signatureHash) return false;
-    
-    const signedPayload = timestamp + "." + payload;
-    const expectedSignature = crypto
-      .createHmac('sha256', process.env.FEDAPAY_WEBHOOK_SECRET)
-      .update(signedPayload)
-      .digest('hex');
-    
-    return crypto.timingSafeEqual(
-      Buffer.from(signatureHash, 'hex'),
-      Buffer.from(expectedSignature, 'hex')
-    );
-  } catch (err) {
-    return false;
-  }
-}
-
-// ============================================================
 // 📊 1. LISTER LES ABONNEMENTS
 // ============================================================
 router.get("/", middleware(["COORDINATEUR", "FAMILLE"]), async (req, res) => {
@@ -184,17 +184,22 @@ router.get("/", middleware(["COORDINATEUR", "FAMILLE"]), async (req, res) => {
 // ✅ 2. PAIEMENT MANUEL (Coordinateur)
 // ============================================================
 router.post("/pay", middleware(["COORDINATEUR"]), async (req, res) => {
-  const { abonnement_id, montant } = req.body;
+  const { abonnement_id, montant, transaction_id, mode_paiement } = req.body;
   try {
     const paymentDate = new Date();
     
+    const updateData = {
+      montant_paye: montant,
+      statut: "Payé",
+      date_paiement: paymentDate.toISOString(),
+    };
+    
+    if (transaction_id) updateData.reference_paiement = transaction_id;
+    if (mode_paiement) updateData.mode_paiement = mode_paiement;
+    
     const { data: abo, error: errAbo } = await supabase
       .from("abonnements")
-      .update({
-        montant_paye: montant,
-        statut: "Payé",
-        date_paiement: paymentDate.toISOString(),
-      })
+      .update(updateData)
       .eq("id", abonnement_id)
       .select('*, patient:patients(id, nom_complet, famille_user_id, type_pack)')
       .single();
@@ -351,27 +356,26 @@ router.post("/initiate-payment", middleware(["FAMILLE"]), async (req, res) => {
 // 📝 4. GÉNÉRER UNE FACTURE
 // ============================================================
 router.post("/generate", middleware(["FAMILLE"]), async (req, res) => {
-router.post("/generate", middleware(["FAMILLE"]), async (req, res) => {
-    const { patient_id, montant, pack } = req.body;
-    const monthYear = new Date().toLocaleDateString("fr-FR", {
-        month: "2-digit",
-        year: "numeric",
-    });
-    
-    const { data, error } = await supabase
-        .from("abonnements")
-        .insert([{
-            patient_id: patient_id,
-            mois_annee: monthYear,
-            montant_du: montant,
-            statut: "En attente",
-            type_pack: pack
-        }])
-        .select()
-        .single();
-    
-    if (error) return res.status(500).json({ error: error.message });
-    res.json(data);
+  const { patient_id, montant, pack } = req.body;
+  const monthYear = new Date().toLocaleDateString("fr-FR", {
+    month: "2-digit",
+    year: "numeric",
+  });
+  
+  const { data, error } = await supabase
+    .from("abonnements")
+    .insert([{
+      patient_id: patient_id,
+      mois_annee: monthYear,
+      montant_du: montant,
+      statut: "En attente",
+      type_pack: pack
+    }])
+    .select()
+    .single();
+  
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
 });
 
 // ============================================================
