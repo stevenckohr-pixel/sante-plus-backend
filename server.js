@@ -154,6 +154,11 @@ app.post('/api/send-push', async (req, res) => {
     }
 });
 
+
+app.get("/api/kikiapay/confirm", (req, res) => {
+    // Rediriger vers la fonction de confirmation
+    require("./routes/kikiapay").handleConfirm(req, res);
+});
 // ============================================================
 // IMPORTS DES ROUTES
 // ============================================================
