@@ -183,7 +183,7 @@ router.get("/", middleware(["COORDINATEUR", "FAMILLE"]), async (req, res) => {
 // ============================================================
 // ✅ 2. PAIEMENT MANUEL (Coordinateur)
 // ============================================================
-router.post("/pay", middleware(["COORDINATEUR"]), async (req, res) => {
+router.post("/pay", middleware(["COORDINATEUR", "FAMILLE"]), async (req, res) => {
   const { abonnement_id, montant, transaction_id, mode_paiement } = req.body;
   try {
     const paymentDate = new Date();
@@ -509,4 +509,57 @@ router.post("/test-payment", middleware(["FAMILLE"]), async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+
+
+// ============================================================
+// 💳 PAIEMENT POUR LA FAMILLE (test)
+// ============================================================
+router.post("/family-pay", middleware(["FAMILLE"]), async (req, res) => {
+  const { abonnement_id, montant, mode_paiement } = req.body;
+  
+  console.log("💰 Paiement famille pour abonnement:", abonnement_id);
+  
+  try {
+    const paymentDate = new Date();
+    const endDate = new Date();
+    endDate.setMonth(endDate.getMonth() + 1);
+    endDate.setDate(endDate.getDate() + 5);
+    
+    const updateData = {
+      montant_paye: montant,
+      statut: "Payé",
+      date_paiement: paymentDate.toISOString(),
+      date_fin_abonnement: endDate.toISOString(),
+      mode_paiement: mode_paiement || "FAMILLE"
+    };
+    
+    const { data: abo, error: errAbo } = await supabase
+      .from("abonnements")
+      .update(updateData)
+      .eq("id", abonnement_id)
+      .select('*, patient:patients(id, nom_complet, famille_user_id)')
+      .single();
+
+    if (errAbo) throw errAbo;
+
+    if (abo && abo.patient) {
+      await supabase
+        .from("patients")
+        .update({ 
+          statut_paiement: "A jour",
+          date_dernier_paiement: paymentDate.toISOString(),
+          date_fin_abonnement: endDate.toISOString()
+        })
+        .eq("id", abo.patient.id);
+    }
+
+    res.json({ status: "success" });
+    
+  } catch (err) {
+    console.error("❌ Erreur paiement famille:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
