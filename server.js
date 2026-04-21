@@ -188,6 +188,7 @@ app.use("/api/commandes", commandesRoutes);
 app.use("/api/planning", planningRoutes);
 app.use("/api/notifications", notificationsRoutes);
 app.use("/api/educational", educationRoutes);
+app.use("/api/kikiapay", require("./routes/kikiapay"));
 
 // ============================================================
 // DÉMARRAGE DES TÂCHES PLANIFIÉES
