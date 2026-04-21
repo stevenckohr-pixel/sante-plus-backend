@@ -351,26 +351,27 @@ router.post("/initiate-payment", middleware(["FAMILLE"]), async (req, res) => {
 // 📝 4. GÉNÉRER UNE FACTURE
 // ============================================================
 router.post("/generate", middleware(["FAMILLE"]), async (req, res) => {
-  const { patient_id, montant, pack } = req.body;
-  const monthYear = new Date().toLocaleDateString("fr-FR", {
-    month: "2-digit",
-    year: "numeric",
-  });
-  
-  const { data, error } = await supabase
-    .from("abonnements")
-    .insert([{
-      patient_id: patient_id,
-      mois_annee: monthYear,
-      montant_du: montant,
-      statut: "En attente",
-      type_pack: pack
-    }])
-    .select()
-    .single();
-  
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
+router.post("/generate", middleware(["FAMILLE"]), async (req, res) => {
+    const { patient_id, montant, pack } = req.body;
+    const monthYear = new Date().toLocaleDateString("fr-FR", {
+        month: "2-digit",
+        year: "numeric",
+    });
+    
+    const { data, error } = await supabase
+        .from("abonnements")
+        .insert([{
+            patient_id: patient_id,
+            mois_annee: monthYear,
+            montant_du: montant,
+            statut: "En attente",
+            type_pack: pack
+        }])
+        .select()
+        .single();
+    
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
 });
 
 // ============================================================
