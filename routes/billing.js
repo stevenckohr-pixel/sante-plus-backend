@@ -260,6 +260,9 @@ router.post("/initiate-payment", middleware(["FAMILLE"]), async (req, res) => {
   const { pack_id, duration_months, patient_id, amount } = req.body;
   
   console.log("🔵 Initiation paiement:", { pack_id, duration_months, patient_id, amount });
+  console.log("🔑 Clé FedaPay présente:", !!process.env.FEDAPAY_SECRET_KEY);
+  console.log("🔑 Clé FedaPay (début):", process.env.FEDAPAY_SECRET_KEY?.substring(0, 15) + "...");
+  console.log("🌍 Mode configuré:", process.env.FEDAPAY_MODE || 'non défini (par défaut production)');
   
   if (!process.env.FEDAPAY_SECRET_KEY) {
     console.error("❌ FEDAPAY_SECRET_KEY manquante");
@@ -267,64 +270,86 @@ router.post("/initiate-payment", middleware(["FAMILLE"]), async (req, res) => {
   }
 
   try {
+    // Récupérer les infos patient
     const { data: patient, error: patientErr } = await supabase
       .from("patients")
       .select("id, nom_complet, formule")
       .eq("id", patient_id)
       .single();
     
-    if (patientErr) throw patientErr;
+    if (patientErr) {
+      console.error("❌ Erreur patient:", patientErr);
+      throw patientErr;
+    }
     
+    console.log("✅ Patient trouvé:", patient?.nom_complet);
+    
+    // Récupérer les infos utilisateur
     const { data: user, error: userErr } = await supabase
       .from("profiles")
       .select("email, nom")
       .eq("id", req.user.userId)
       .single();
     
-    if (userErr) throw userErr;
+    if (userErr) {
+      console.error("❌ Erreur user:", userErr);
+      throw userErr;
+    }
     
-    const fedapayMode = process.env.FEDAPAY_MODE || 'production';
+    console.log("✅ Utilisateur trouvé:", user?.email);
+    
+    // Déterminer l'environnement
+    const fedapayMode = process.env.FEDAPAY_MODE === 'sandbox' ? 'sandbox' : 'production';
     const apiUrl = fedapayMode === 'production' 
       ? "https://api.fedapay.com/v1/transactions"
       : "https://sandbox-api.fedapay.com/v1/transactions";
     
     console.log(`🌍 Mode FedaPay: ${fedapayMode}`);
+    console.log(`🌍 API URL: ${apiUrl}`);
     
-    const response = await axios.post(
-      apiUrl,
-      {
-        amount: Math.round(amount),
-        currency: "XOF",
-        description: `Pack ${patient.formule || pack_id} - ${duration_months} mois`,
-        customer: {
-          email: user.email,
-          firstname: user.nom?.split(' ')[0] || '',
-          lastname: user.nom?.split(' ')[1] || ''
-        },
-        callback_url: "https://stevenckohr-pixel.github.io/sante-plus-frontend/#billing?status=success",
-        cancel_url: "https://stevenckohr-pixel.github.io/sante-plus-frontend/#billing?status=cancel",
-        metadata: {
-          patient_id: patient_id,
-          user_id: req.user.userId,
-          duration_months: duration_months,
-          pack_name: patient.formule || pack_id
-        }
+    // Préparer les données pour FedaPay
+    const requestData = {
+      amount: Math.round(amount),
+      currency: "XOF",
+      description: `Pack ${patient.formule || pack_id} - ${duration_months} mois`,
+      customer: {
+        email: user.email,
+        firstname: user.nom?.split(' ')[0] || 'Client',
+        lastname: user.nom?.split(' ')[1] || 'SPS'
       },
-      {
-        headers: { 
-          Authorization: `Bearer ${process.env.FEDAPAY_SECRET_KEY}`,
-          "Content-Type": "application/json"
-        },
-        timeout: 30000
+      callback_url: "https://stevenckohr-pixel.github.io/sante-plus-frontend/#billing?status=success",
+      cancel_url: "https://stevenckohr-pixel.github.io/sante-plus-frontend/#billing?status=cancel",
+      metadata: {
+        patient_id: patient_id,
+        user_id: req.user.userId,
+        duration_months: duration_months,
+        pack_name: patient.formule || pack_id
       }
-    );
+    };
+    
+    console.log("📦 Données envoyées à FedaPay:", JSON.stringify(requestData, null, 2));
+    
+    // Appel à l'API FedaPay
+    const response = await axios.post(apiUrl, requestData, {
+      headers: { 
+        Authorization: `Bearer ${process.env.FEDAPAY_SECRET_KEY}`,
+        "Content-Type": "application/json"
+      },
+      timeout: 30000
+    });
+    
+    console.log("📥 Réponse FedaPay:", response.status, response.statusText);
     
     if (!response.data || !response.data.payment_url) {
+      console.error("❌ Réponse FedaPay invalide:", response.data);
       throw new Error("La réponse de FedaPay ne contient pas d'URL");
     }
     
-    // Stocker la transaction
-    await supabase
+    console.log("✅ Transaction créée, ID:", response.data.id);
+    console.log("✅ URL de paiement:", response.data.payment_url);
+    
+    // Stocker la transaction en attente
+    const { error: insertError } = await supabase
       .from("pending_transactions")
       .insert([{
         user_id: req.user.userId,
@@ -337,17 +362,32 @@ router.post("/initiate-payment", middleware(["FAMILLE"]), async (req, res) => {
         created_at: new Date()
       }]);
     
-    console.log("✅ Transaction créée:", response.data.id);
+    if (insertError) {
+      console.error("❌ Erreur insertion pending_transactions:", insertError);
+      // Non bloquant, on continue
+    }
+    
     res.json({ 
       success: true, 
-      payment_url: response.data.payment_url 
+      payment_url: response.data.payment_url,
+      transaction_id: response.data.id
     });
     
   } catch (err) {
-    console.error("❌ FedaPay Error:", err.response?.data || err.message);
+    console.error("❌ FedaPay Error détaillé:");
+    console.error("  - Message:", err.message);
+    console.error("  - Status:", err.response?.status);
+    console.error("  - Data:", JSON.stringify(err.response?.data, null, 2));
+    
     let errorMessage = "Impossible d'initier le paiement";
-    if (err.response?.status === 401) errorMessage = "Clé API FedaPay invalide";
-    else if (err.response?.data?.errors) errorMessage = err.response.data.errors.map(e => e.message).join(", ");
+    if (err.response?.status === 401) {
+      errorMessage = "Clé API FedaPay invalide ou manquante";
+    } else if (err.response?.status === 400) {
+      errorMessage = err.response?.data?.errors?.[0]?.message || "Données de paiement invalides";
+    } else if (err.response?.data?.message) {
+      errorMessage = err.response.data.message;
+    }
+    
     res.status(500).json({ error: errorMessage });
   }
 });
