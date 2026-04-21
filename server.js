@@ -177,8 +177,10 @@ const commandesRoutes = require("./routes/commandes");
 const planningRoutes = require("./routes/planning");
 const educationRoutes = require("./routes/education");
 
+// ... (tout le début inchangé)
+
 // ============================================================
-// BRANCHEMENT DES ROUTES
+// ROUTES
 // ============================================================
 app.use("/api/auth", authRoutes);
 app.use("/api/billing", billingRoutes);
@@ -196,13 +198,10 @@ app.use("/api/educational", educationRoutes);
 app.use("/api/kikiapay", require("./routes/kikiapay"));
 
 // ============================================================
-// DÉMARRAGE DES TÂCHES PLANIFIÉES
+// DÉMARRAGE
 // ============================================================
 startCronJobs();
 
-// ============================================================
-// DÉMARRAGE DU SERVEUR
-// ============================================================
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
     console.log(`✅ Serveur démarré sur le port ${PORT}`);
