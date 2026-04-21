@@ -449,4 +449,64 @@ router.get("/pending-transactions", middleware(["COORDINATEUR", "FAMILLE"]), asy
   }
 });
 
+
+
+ 
+
+
+// ============================================================
+// 🧪 MODE TEST - Paiement simulé (sans FedaPay)
+// ============================================================
+router.post("/test-payment", middleware(["FAMILLE"]), async (req, res) => {
+  const { abonnement_id, montant } = req.body;
+  
+  console.log("🧪 [TEST] Paiement simulé pour abonnement:", abonnement_id);
+  
+  try {
+    const paymentDate = new Date();
+    const endDate = new Date();
+    endDate.setMonth(endDate.getMonth() + 1);
+    endDate.setDate(endDate.getDate() + 5);
+    
+    // Mettre à jour l'abonnement
+    const { error: aboErr } = await supabase
+      .from("abonnements")
+      .update({
+        statut: "Payé",
+        date_paiement: paymentDate.toISOString(),
+        montant_paye: montant,
+        date_fin_abonnement: endDate.toISOString(),
+        mode_paiement: "TEST"
+      })
+      .eq("id", abonnement_id);
+    
+    if (aboErr) throw aboErr;
+    
+    // Récupérer le patient_id
+    const { data: abo } = await supabase
+      .from("abonnements")
+      .select("patient_id")
+      .eq("id", abonnement_id)
+      .single();
+    
+    if (abo) {
+      // Mettre à jour le patient
+      await supabase
+        .from("patients")
+        .update({
+          statut_paiement: "A jour",
+          date_dernier_paiement: paymentDate.toISOString(),
+          date_fin_abonnement: endDate.toISOString()
+        })
+        .eq("id", abo.patient_id);
+    }
+    
+    console.log("✅ [TEST] Paiement simulé réussi");
+    res.json({ success: true, message: "Paiement test réussi" });
+    
+  } catch (err) {
+    console.error("❌ Erreur test payment:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
 module.exports = router;
