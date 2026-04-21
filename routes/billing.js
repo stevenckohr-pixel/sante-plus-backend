@@ -562,4 +562,23 @@ router.post("/family-pay", middleware(["FAMILLE"]), async (req, res) => {
   }
 });
 
+
+
+// Récupérer une facture par ID
+router.get("/:id", middleware(["COORDINATEUR", "FAMILLE"]), async (req, res) => {
+    const { id } = req.params;
+    
+    try {
+        const { data, error } = await supabase
+            .from("abonnements")
+            .select("*")
+            .eq("id", id)
+            .single();
+        
+        if (error) throw error;
+        res.json(data);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 module.exports = router;
