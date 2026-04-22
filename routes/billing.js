@@ -581,4 +581,43 @@ router.get("/:id", middleware(["COORDINATEUR", "FAMILLE"]), async (req, res) => 
         res.status(500).json({ error: err.message });
     }
 });
+
+
+// ============================================================
+// 📄 GÉNÉRER UNE FACTURE (détails)
+// ============================================================
+router.get("/invoice/:id", middleware(["COORDINATEUR", "FAMILLE"]), async (req, res) => {
+    const { id } = req.params;
+    
+    try {
+        const { data: abonnement, error } = await supabase
+            .from("abonnements")
+            .select(`
+                *,
+                patient:patient_id (id, nom_complet, adresse)
+            `)
+            .eq("id", id)
+            .single();
+        
+        if (error) throw error;
+        
+        // Formatage des données
+        const invoiceData = {
+            numero: abonnement.reference_paiement || abonnement.id.substring(0, 8).toUpperCase(),
+            date: new Date(abonnement.date_paiement || abonnement.created_at).toLocaleDateString('fr-FR'),
+            montant: abonnement.montant_du,
+            statut: abonnement.statut,
+            type_pack: abonnement.type_pack,
+            mois: abonnement.mois_annee,
+            patient_nom: abonnement.patient?.nom_complet,
+            date_fin: abonnement.date_fin_abonnement ? new Date(abonnement.date_fin_abonnement).toLocaleDateString('fr-FR') : null
+        };
+        
+        res.json(invoiceData);
+        
+    } catch (err) {
+        console.error("❌ Erreur récupération facture:", err);
+        res.status(500).json({ error: err.message });
+    }
+});
 module.exports = router;
