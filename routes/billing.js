@@ -620,4 +620,80 @@ router.get("/invoice/:id", middleware(["COORDINATEUR", "FAMILLE"]), async (req, 
         res.status(500).json({ error: err.message });
     }
 });
+
+
+// ============================================================
+// 📄 RÉCUPÉRER LES DONNÉES D'UNE FACTURE POUR PDF
+// ============================================================
+router.get("/invoice-data/:id", middleware(["COORDINATEUR", "FAMILLE"]), async (req, res) => {
+    const { id } = req.params;
+    
+    try {
+        const { data: abonnement, error } = await supabase
+            .from("abonnements")
+            .select(`
+                *,
+                patient:patient_id (
+                    id, 
+                    nom_complet, 
+                    adresse,
+                    telephone,
+                    formule
+                ),
+                patient_famille:patient_id (
+                    famille_user_id (
+                        nom, 
+                        email, 
+                        telephone,
+                        adresse
+                    )
+                )
+            `)
+            .eq("id", id)
+            .single();
+        
+        if (error) throw error;
+        
+        // Récupérer les infos de l'entreprise (depuis une table settings ou en dur)
+        const companyInfo = {
+            name: "Santé Plus Services",
+            logo: "/sante-plus-frontend/assets/images/logo-general-text.png",
+            address: "Cotonou, Bénin",
+            phone: "+229 01 23 45 67",
+            email: "contact@santeplus.bj",
+            website: "www.santeplus.bj"
+        };
+        
+        // Formatage
+        const invoiceData = {
+            numero: abonnement.reference_paiement || abonnement.id.substring(0, 8).toUpperCase(),
+            date: new Date(abonnement.date_paiement || abonnement.created_at),
+            dateFormatted: new Date(abonnement.date_paiement || abonnement.created_at).toLocaleDateString('fr-FR'),
+            montant: abonnement.montant_du,
+            montantPaye: abonnement.montant_paye || 0,
+            statut: abonnement.statut,
+            type_pack: abonnement.type_pack?.replace(/_/g, ' ') || 'Standard',
+            mois: abonnement.mois_annee,
+            patient_nom: abonnement.patient?.nom_complet,
+            patient_adresse: abonnement.patient?.adresse || 'Non renseignée',
+            patient_telephone: abonnement.patient?.telephone || 'Non renseigné',
+            famille_nom: abonnement.patient?.famille_user_id?.nom,
+            famille_email: abonnement.patient?.famille_user_id?.email,
+            date_fin: abonnement.date_fin_abonnement ? new Date(abonnement.date_fin_abonnement).toLocaleDateString('fr-FR') : null,
+            date_debut: abonnement.date_paiement ? new Date(abonnement.date_paiement).toLocaleDateString('fr-FR') : null,
+            company: companyInfo
+        };
+        
+        res.json(invoiceData);
+        
+    } catch (err) {
+        console.error("❌ Erreur récupération facture:", err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 module.exports = router;
+
+
+
+
